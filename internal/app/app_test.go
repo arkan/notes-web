@@ -257,6 +257,58 @@ func searchResultsContainRel(results []SearchResult, rel string) bool {
 	return false
 }
 
+func TestReadingComfortControlsAndLayout(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`data-focus-toggle`,
+		`data-font-size-select`,
+		`aria-label="Toggle reading focus"`,
+		`<article class="note reading-surface">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing reading control markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`.reading-surface{max-width:var(--measure)`,
+		`.note .content table`,
+		`width:min(100%,var(--measure))`,
+		`body.reading-focus .side`,
+		`[data-font-size="large"]`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing reading comfort CSS %q in:\n%s", want, css)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		`notes-web:font-size`,
+		`notes-web:reading-focus`,
+		`initReadingControls`,
+		`data-font-size-select`,
+		`data-focus-toggle`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing reading comfort JS %q in:\n%s", want, js)
+		}
+	}
+}
+
 func TestSearchPageShowsQuerySyntaxHelp(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
