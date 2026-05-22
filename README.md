@@ -167,4 +167,4 @@ internal/app/app_test.go   unit and integration-style tests
 
 ## License
 
-Private project. No license is currently granted.
+Notes Web is licensed under the [MIT License](./LICENSE).
