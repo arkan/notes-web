@@ -242,3 +242,55 @@ func TestMobileSidebarOverlayBehavior(t *testing.T) {
 		}
 	}
 }
+
+func TestThemeControlsSupportLightDarkSepiaAndAuto(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<label class="theme-picker">Theme`,
+		`<select data-theme-select aria-label="Theme">`,
+		`<option value="auto">Auto</option>`,
+		`<option value="light">Light</option>`,
+		`<option value="dark">Dark</option>`,
+		`<option value="sepia">Sepia</option>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing theme control markup %q", want)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		"[data-theme=dark]",
+		"[data-theme=sepia]",
+		"@media(prefers-color-scheme:dark)",
+		".theme-picker{display:flex",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing theme CSS %q in:\n%s", want, css)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"const themeStorageKey = 'notes-web:theme'",
+		"function applyTheme(theme)",
+		"function initThemePicker()",
+		"document.documentElement.dataset.theme",
+		"data-theme-select",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing theme JS %q in:\n%s", want, js)
+		}
+	}
+}
