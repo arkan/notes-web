@@ -51,34 +51,69 @@ function initThemePicker() {
 let paletteItems = [];
 let paletteMatches = [];
 let paletteSelectedIndex = 0;
+let paletteLoadPromise = null;
+let paletteLoadError = false;
+function loadPaletteItems() {
+  if (paletteItems.length) return Promise.resolve(paletteItems);
+  if (paletteLoadPromise) return paletteLoadPromise;
+  paletteLoadError = false;
+  paletteLoadPromise = fetch('/_api/palette')
+    .then((r) => {
+      if (!r.ok) throw new Error('palette load failed: ' + r.status);
+      return r.json();
+    })
+    .then((items) => {
+      paletteItems = Array.isArray(items) ? items : [];
+      return paletteItems;
+    })
+    .catch((err) => {
+      console.error(err);
+      paletteLoadError = true;
+      paletteLoadPromise = null;
+      throw err;
+    });
+  return paletteLoadPromise;
+}
 function openPalette() {
   const palette = document.querySelector('[data-palette]');
   const input = document.querySelector('[data-palette-input]');
   if (!palette || !input) return;
   palette.hidden = false;
-  if (!paletteItems.length) fetch('/_api/palette').then(r => r.json()).then(items => { paletteItems = items; renderPalette(input.value); });
   renderPalette(input.value);
-  setTimeout(() => input.focus(), 0);
+  loadPaletteItems().then(() => renderPalette(input.value)).catch(() => renderPalette(input.value));
+  setTimeout(() => { input.focus(); input.select(); }, 0);
 }
 function closePalette() {
   const palette = document.querySelector('[data-palette]');
   if (palette) palette.hidden = true;
 }
+function setActivePaletteIndex(index) {
+  paletteSelectedIndex = Math.max(0, Math.min(index, Math.max(0, paletteMatches.length - 1)));
+  document.querySelectorAll('[data-palette-index]').forEach((button) => {
+    const selected = Number(button.dataset.paletteIndex) === paletteSelectedIndex;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-selected', String(selected));
+  });
+}
 function renderPalette(query) {
   const results = document.querySelector('[data-palette-results]');
   if (!results) return;
-  const q = (query || '').toLowerCase();
-  paletteMatches = paletteItems.filter(item => !q || item.title.toLowerCase().includes(q) || (item.path || '').toLowerCase().includes(q)).slice(0, 30);
+  if (!paletteItems.length) {
+    paletteMatches = [];
+    results.innerHTML = paletteLoadError ? '<p class="palette-empty empty-state">Unable to load search results.</p>' : '<p class="palette-empty empty-state">Loading…</p>';
+    return;
+  }
+  const q = (query || '').trim().toLowerCase();
+  paletteMatches = paletteItems.filter((item) => {
+    const haystack = [item.title, item.path, item.kind].filter(Boolean).join(' ').toLowerCase();
+    return !q || haystack.includes(q);
+  }).slice(0, 30);
   if (paletteSelectedIndex >= paletteMatches.length) paletteSelectedIndex = 0;
-  results.innerHTML = paletteMatches.map((item, index) => '<button role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title) + '</strong><small>' + escapeHTML(item.path || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind) + '</span></button>').join('') || '<p class="palette-empty empty-state">No results.</p>';
-  results.querySelectorAll('[data-palette-index]').forEach((button) => {
-    button.addEventListener('mouseenter', () => { paletteSelectedIndex = Number(button.dataset.paletteIndex); renderPalette(document.querySelector('[data-palette-input]')?.value || ''); });
-    button.addEventListener('click', () => openPaletteMatch(Number(button.dataset.paletteIndex)));
-  });
+  results.innerHTML = paletteMatches.map((item, index) => '<button type="button" role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title || item.path || item.url || 'Untitled') + '</strong><small>' + escapeHTML(item.path || item.url || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind || 'item') + '</span></button>').join('') || '<p class="palette-empty empty-state">No results.</p>';
 }
 function openPaletteMatch(index) {
   const item = paletteMatches[index];
-  if (item) location.href = item.url;
+  if (item && item.url) location.assign(item.url);
 }
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -86,10 +121,22 @@ function escapeHTML(value) {
 function initCommandPalette() {
   document.querySelector('[data-palette-open]')?.addEventListener('click', openPalette);
   document.querySelector('[data-palette]')?.addEventListener('click', (ev) => { if (ev.target.matches('[data-palette]')) closePalette(); });
+  const results = document.querySelector('[data-palette-results]');
+  results?.addEventListener('click', (ev) => {
+    const button = ev.target.closest('[data-palette-index]');
+    if (!button || !results.contains(button)) return;
+    ev.preventDefault();
+    openPaletteMatch(Number(button.dataset.paletteIndex));
+  });
+  results?.addEventListener('mousemove', (ev) => {
+    const button = ev.target.closest('[data-palette-index]');
+    if (!button || !results.contains(button)) return;
+    setActivePaletteIndex(Number(button.dataset.paletteIndex));
+  });
   document.querySelector('[data-palette-input]')?.addEventListener('input', (ev) => { paletteSelectedIndex = 0; renderPalette(ev.target.value); });
   document.querySelector('[data-palette-input]')?.addEventListener('keydown', (ev) => {
-    if (ev.key === 'ArrowDown') { ev.preventDefault(); paletteSelectedIndex = Math.min(paletteSelectedIndex + 1, Math.max(0, paletteMatches.length - 1)); renderPalette(ev.target.value); }
-    else if (ev.key === 'ArrowUp') { ev.preventDefault(); paletteSelectedIndex = Math.max(0, paletteSelectedIndex - 1); renderPalette(ev.target.value); }
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); setActivePaletteIndex(paletteSelectedIndex + 1); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); setActivePaletteIndex(paletteSelectedIndex - 1); }
     else if (ev.key === 'Enter') { ev.preventDefault(); openPaletteMatch(paletteSelectedIndex); }
   });
   document.addEventListener('keydown', (ev) => {

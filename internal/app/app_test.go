@@ -889,15 +889,23 @@ func TestCommandPaletteMarkupAPIAndClientBehavior(t *testing.T) {
 	js := w.Body.String()
 	for _, want := range []string{
 		"function initCommandPalette()",
+		"function loadPaletteItems()",
 		"/_api/palette",
 		"metaKey",
 		"ev.key === '/'",
 		"data-palette-results",
-		"location.href = item.url",
+		"results?.addEventListener('click'",
+		"results?.addEventListener('mousemove'",
+		"location.assign(item.url)",
+		"Loading…",
+		"Unable to load search results.",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("missing palette JS %q in:\n%s", want, js)
 		}
+	}
+	if strings.Contains(js, "button.addEventListener('mouseenter'") || strings.Contains(js, "button.addEventListener('click'") {
+		t.Fatalf("palette result interactions should be delegated; per-button listeners are unstable when hover rerenders:\n%s", js)
 	}
 }
 
