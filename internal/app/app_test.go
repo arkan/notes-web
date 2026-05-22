@@ -1274,6 +1274,14 @@ func TestTagsPageHasWorkingFilterMarkupWithoutMetricCards(t *testing.T) {
 			t.Fatalf("missing robust tag filter JS %q in:\n%s", want, js)
 		}
 	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	if !strings.Contains(css, "[hidden]{display:none!important}") {
+		t.Fatalf("hidden filtered tags must beat chip display styles, missing [hidden] override in CSS:\n%s", css)
+	}
 }
 
 func TestSidebarPaletteAndNoFlashContracts(t *testing.T) {
