@@ -283,6 +283,43 @@ func TestTagsPagesAndBadges(t *testing.T) {
 	}
 }
 
+func TestDashboardSummarizesDailyTodosAndLinkHealth(t *testing.T) {
+	v := makeVault(t)
+	dashboard, err := v.BuildDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.LatestDaily == nil || dashboard.LatestDaily.RelPath != "Areas/Daily Briefings/2026-05-22-briefing.md" {
+		t.Fatalf("unexpected latest daily: %+v", dashboard.LatestDaily)
+	}
+	if len(dashboard.OpenTasks) != 1 || dashboard.OpenTasks[0].ID != "1c496356" || dashboard.OpenTasks[0].Due != "2026-05-19" {
+		t.Fatalf("unexpected open tasks: %+v", dashboard.OpenTasks)
+	}
+	if dashboard.BrokenLinkCount != 1 {
+		t.Fatalf("broken link count=%d want 1", dashboard.BrokenLinkCount)
+	}
+	if dashboard.OrphanNoteCount == 0 {
+		t.Fatalf("expected at least one orphan note")
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<h2>Open TODOs</h2>`,
+		`Change Captur tires`,
+		`href="/_todo"`,
+		`Broken links`,
+		`Orphan notes`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing dashboard markup %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")

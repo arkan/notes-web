@@ -724,7 +724,10 @@ func (s *Server) commonForActive(title, activeRel string) map[string]any {
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	c := s.common("Home")
-	c["Latest"] = s.vault.LatestDaily()
+	dashboard, err := s.vault.BuildDashboard()
+	c["Dashboard"] = dashboard
+	c["Err"] = err
+	c["Latest"] = dashboard.LatestDaily
 	c["Recent"] = s.vault.RecentNotes(10)
 	s.render(w, "home", c)
 }
