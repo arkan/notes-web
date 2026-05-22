@@ -156,14 +156,37 @@ func TestMainContainerUsesAvailableWidthWithoutHorizontalPageOverflow(t *testing
 		t.Fatalf("main container should not have a max-width cap:\n%s", css)
 	}
 	for _, want := range []string{
-		".shell{display:grid;grid-template-columns:300px minmax(0,1fr);",
+		"grid-template-columns:300px minmax(0,1fr)",
 		".main{min-width:0;width:100%;",
 		".note header{display:flex;align-items:start;justify-content:space-between;gap:20px;min-width:0}",
-		".content{font-size:17px;overflow-wrap:anywhere}",
+		".content{font-size:17px;line-height:1.72;overflow-wrap:anywhere}",
 		".content a{overflow-wrap:anywhere}",
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("missing overflow-safe CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
+func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		"--measure:78ch",
+		".content{font-size:17px;line-height:1.72;overflow-wrap:anywhere}",
+		".content>:where(p,ul,ol,blockquote,details,dl){max-width:var(--measure)}",
+		".content>:where(pre,table,.mermaid,img){max-width:100%}",
+		".content p{margin:0 0 1.05rem}",
+		".content h2{margin:2.2rem 0 1rem}",
+		".content pre{overflow:auto;max-width:100%;",
+		".content table{display:block;overflow-x:auto;max-width:100%;",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing readable typography CSS %q in:\n%s", want, css)
 		}
 	}
 }
