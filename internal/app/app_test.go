@@ -313,8 +313,8 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 		`data-theme-select`,
 		`data-font-size-select`,
 		`Keyboard shortcuts`,
-		`⌘/Ctrl F`,
-		`Toggle reading focus`,
+		`⌘/Ctrl B`,
+		`Toggle sidebar`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing settings/modal markup %q in:\n%s", want, body)
@@ -359,7 +359,7 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 		`data-settings-open`,
 		`data-settings-close`,
 		`toggleReadingFocus()`,
-		`ev.key.toLowerCase() === 'f'`,
+		`ev.key.toLowerCase() === 'b'`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("missing settings/focus JS %q in:\n%s", want, js)
@@ -1223,9 +1223,9 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 	}
 }
 
-func TestTagsPageUsesProgressiveDisclosureAndControls(t *testing.T) {
+func TestTagsPageHasWorkingFilterMarkupWithoutMetricCards(t *testing.T) {
 	v := makeVault(t)
-	// Create enough one-off tags to prove rare tags are not dumped into the main view.
+	// Create enough one-off tags to prove rare tags are still available without metric cards.
 	for i := 0; i < 8; i++ {
 		p := filepath.Join(v.Root, "Areas", "Tags", "Rare"+string(rune('A'+i))+".md")
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -1241,16 +1241,105 @@ func TestTagsPageUsesProgressiveDisclosureAndControls(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`class="tag-stats"`,
 		`class="tag-controls"`,
 		`placeholder="Filter tags…"`,
+		`aria-label="Filter tags"`,
 		`Popular tags`,
 		`Alphabetical index`,
 		`Rare tags`,
 		`data-tag-filter`,
+		`data-tag-name=`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("missing progressive tags markup %q in:\n%s", want, body)
+			t.Fatalf("missing tag filter markup %q in:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`class="tag-stats"`, `total tags`, `one-off tags`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("tags page should not contain metric card %q:\n%s", unwanted, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function initTagFilter()",
+		"data-tag-name",
+		"closest('.tag-letter')",
+		"tagFilter.addEventListener('input'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing robust tag filter JS %q in:\n%s", want, js)
+		}
+	}
+}
+
+func TestSidebarPaletteAndNoFlashContracts(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<script>try{`,
+		`notes-web:reading-focus`,
+		`document.documentElement.dataset.readingFocus`,
+		`data-palette-open aria-label="Open command palette">⌘K</button>`,
+		`<dt>⌘/Ctrl B</dt><dd>Toggle sidebar</dd>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing no-flash/sidebar markup %q in:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`class="search sidebar-search"`, `<dt>⌘/Ctrl F</dt><dd>Toggle reading focus</dd>`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("layout should not contain obsolete sidebar/search markup %q:\n%s", unwanted, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"ev.key.toLowerCase() === 'b'",
+		"toggleReadingFocus()",
+		"applyInitialPreferences()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing shortcut/no-flash JS %q in:\n%s", want, js)
+		}
+	}
+	if strings.Contains(js, "ev.key.toLowerCase() === 'f'") {
+		t.Fatalf("Cmd/Ctrl+F must remain available for browser find, not sidebar toggling:\n%s", js)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+		".palette-button{position:fixed;right:18px;bottom:18px",
+		".side{position:sticky;top:0;height:100vh;overflow:auto",
+		":root[data-reading-focus=\"true\"] .side{display:none}",
+		":root[data-reading-focus=\"true\"] .shell{grid-template-columns:minmax(0,1fr)}",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing sidebar/no-flash CSS %q in:\n%s", want, css)
+		}
+	}
+	for _, unwanted := range []string{
+		".side{display:flex;flex-direction:column;overflow:hidden",
+		".side>section:last-of-type{flex:1;min-height:0;overflow:auto",
+		".palette-button{top:18px;right:18px;bottom:auto}",
+	} {
+		if strings.Contains(css, unwanted) {
+			t.Fatalf("CSS should not contain obsolete override %q:\n%s", unwanted, css)
 		}
 	}
 }

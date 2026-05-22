@@ -4,6 +4,13 @@ const sidebarStorageKey = 'notes-web:sidebar-open';
 const themeStorageKey = 'notes-web:theme';
 const fontSizeStorageKey = 'notes-web:font-size';
 const readingFocusStorageKey = 'notes-web:reading-focus';
+function applyInitialPreferences() {
+  try {
+    applyTheme(localStorage.getItem(themeStorageKey) || 'auto');
+    applyFontSize(localStorage.getItem(fontSizeStorageKey) || 'normal');
+    applyReadingFocus(localStorage.getItem(readingFocusStorageKey) === 'true');
+  } catch {}
+}
 function applyTheme(theme) {
   if (!theme || theme === 'auto') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.dataset.theme = theme;
@@ -113,7 +120,7 @@ function initCommandPalette() {
   document.addEventListener('keydown', (ev) => {
     const inField = ev.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName);
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); openPalette(); }
-    else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleReadingFocus(); }
+    else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'b') { ev.preventDefault(); toggleReadingFocus(); }
     else if (ev.key === '/' && !inField) { ev.preventDefault(); openPalette(); }
     else if (ev.key === 'Escape') { closePalette(); closeSettingsModal(); }
   });
@@ -125,7 +132,8 @@ function applyFontSize(size) {
   else document.documentElement.dataset.fontSize = normalized;
 }
 function applyReadingFocus(enabled) {
-  document.body.classList.toggle('reading-focus', Boolean(enabled));
+  document.documentElement.dataset.readingFocus = String(Boolean(enabled));
+  document.body?.classList.toggle('reading-focus', Boolean(enabled));
 }
 function toggleReadingFocus() {
   const enabled = !document.body.classList.contains('reading-focus');
@@ -213,13 +221,27 @@ function initListFilters() {
       });
     });
   });
-  const tagFilter = document.querySelector('[data-tag-filter]');
-  tagFilter?.addEventListener('input', () => {
-    const q = tagFilter.value.toLowerCase();
-    document.querySelectorAll('[data-tag-chip]').forEach((el) => { el.hidden = q && !el.textContent.toLowerCase().includes(q); });
-  });
+  initTagFilter();
   document.querySelector('[data-hide-rare]')?.addEventListener('click', () => {
     document.querySelector('.rare-tags')?.toggleAttribute('hidden');
+  });
+}
+function initTagFilter() {
+  const tagFilter = document.querySelector('[data-tag-filter]');
+  if (!tagFilter) return;
+  tagFilter.addEventListener('input', () => {
+    const q = tagFilter.value.trim().toLowerCase().replace(/^#/, '');
+    document.querySelectorAll('[data-tag-chip][data-tag-name]').forEach((el) => {
+      const tag = (el.dataset.tagName || el.textContent || '').toLowerCase().replace(/^#/, '');
+      el.hidden = Boolean(q) && !tag.includes(q);
+      el.closest('.tag-letter')?.toggleAttribute('data-filtered', Boolean(q));
+    });
+    document.querySelectorAll('.tag-letter').forEach((section) => {
+      section.hidden = Boolean(q) && !section.querySelector('[data-tag-chip]:not([hidden])');
+    });
+    document.querySelectorAll('.rare-tags').forEach((section) => {
+      section.hidden = Boolean(q) && !section.querySelector('[data-tag-chip]:not([hidden])');
+    });
   });
 }
 
@@ -244,7 +266,7 @@ function markCopied(el, label) {
   if (label) el.textContent = label;
   setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
 }
-document.addEventListener('DOMContentLoaded', () => { initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); initMobileSidebar(); initListFilters(); });
+document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); initMobileSidebar(); initListFilters(); });
 document.addEventListener('click', async (ev) => {
   const copy = ev.target.closest('[data-copy]');
   if (copy) {
