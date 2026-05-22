@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -678,6 +679,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.home(w, r)
 	case "/_search":
 		s.search(w, r)
+	case "/_api/palette":
+		s.paletteAPI(w, r)
 	case "/_resolve":
 		s.resolve(w, r)
 	case "/_missing":
@@ -750,6 +753,39 @@ func (s *Server) missing(w http.ResponseWriter, r *http.Request) {
 	c["Name"] = r.URL.Query().Get("name")
 	w.WriteHeader(404)
 	s.render(w, "missing", c)
+}
+
+type paletteItem struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Kind  string `json:"kind"`
+	Path  string `json:"path,omitempty"`
+}
+
+func (s *Server) paletteAPI(w http.ResponseWriter, r *http.Request) {
+	idx, err := s.vault.BuildIndex()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	items := make([]paletteItem, 0, len(idx.Notes)+len(idx.Tags)+len(s.vault.Favorites()))
+	for _, fav := range s.vault.Favorites() {
+		items = append(items, paletteItem{Title: fav["Label"], URL: fav["URL"], Kind: "favorite", Path: fav["Rel"]})
+	}
+	for _, note := range idx.Notes {
+		items = append(items, paletteItem{Title: note.Title, URL: note.URL, Kind: "note", Path: note.RelPath})
+	}
+	for tag := range idx.Tags {
+		items = append(items, paletteItem{Title: "#" + tag, URL: "/_tags/" + url.PathEscape(tag), Kind: "tag"})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Kind != items[j].Kind {
+			return items[i].Kind < items[j].Kind
+		}
+		return strings.ToLower(items[i].Title) < strings.ToLower(items[j].Title)
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(items)
 }
 
 func (s *Server) tags(w http.ResponseWriter, r *http.Request) {

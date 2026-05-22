@@ -356,6 +356,53 @@ func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T)
 	}
 }
 
+func TestCommandPaletteMarkupAPIAndClientBehavior(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<button class="palette-button" data-palette-open>⌘K</button>`,
+		`<div class="palette" data-palette hidden>`,
+		`<input data-palette-input`,
+		`<div class="palette-results" data-palette-results>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing palette markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_api/palette", nil)
+	s.ServeHTTP(w, r)
+	json := w.Body.String()
+	for _, want := range []string{`"title":"Target"`, `"url":"/Areas/Target.md"`, `"kind":"note"`} {
+		if !strings.Contains(json, want) {
+			t.Fatalf("missing palette API data %q in:\n%s", want, json)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function initCommandPalette()",
+		"/_api/palette",
+		"metaKey",
+		"ev.key === '/'",
+		"data-palette-results",
+		"location.href = item.url",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing palette JS %q in:\n%s", want, js)
+		}
+	}
+}
+
 func TestMobileSidebarOverlayBehavior(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
