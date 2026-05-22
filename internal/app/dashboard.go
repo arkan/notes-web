@@ -222,24 +222,41 @@ func uniqueStrings(items []string) []string {
 	return out
 }
 
-func CountBrokenWikiLinks(idx *VaultIndex, resolver *IndexResolver) int {
+type BrokenWikiLink struct {
+	Source  NoteMeta
+	Target  string
+	Display string
+	Context string
+	LineNo  int
+}
+
+func BrokenWikiLinks(idx *VaultIndex, resolver *IndexResolver) []BrokenWikiLink {
 	if idx == nil {
-		return 0
+		return nil
 	}
-	count := 0
+	var broken []BrokenWikiLink
 	for _, note := range idx.Notes {
-		for _, target := range note.OutgoingWikiLinks {
-			if resolver.Resolve(target).Kind == "missing" {
-				count++
+		for _, link := range note.OutgoingLinks {
+			if resolver.Resolve(link.Target).Kind == "missing" {
+				broken = append(broken, BrokenWikiLink{Source: note, Target: link.Target, Display: link.Display, Context: link.Context, LineNo: link.LineNo})
 			}
 		}
 	}
-	return count
+	sort.SliceStable(broken, func(i, j int) bool {
+		if broken[i].Source.RelPath != broken[j].Source.RelPath {
+			return broken[i].Source.RelPath < broken[j].Source.RelPath
+		}
+		if broken[i].LineNo != broken[j].LineNo {
+			return broken[i].LineNo < broken[j].LineNo
+		}
+		return broken[i].Target < broken[j].Target
+	})
+	return broken
 }
 
-func CountOrphanNotes(idx *VaultIndex, resolver *IndexResolver) int {
+func OrphanNotes(idx *VaultIndex, resolver *IndexResolver) []NoteMeta {
 	if idx == nil {
-		return 0
+		return nil
 	}
 	incoming := map[string]int{}
 	for _, note := range idx.Notes {
@@ -250,11 +267,20 @@ func CountOrphanNotes(idx *VaultIndex, resolver *IndexResolver) int {
 			}
 		}
 	}
-	count := 0
+	var orphans []NoteMeta
 	for _, note := range idx.Notes {
 		if incoming[note.RelPath] == 0 {
-			count++
+			orphans = append(orphans, note)
 		}
 	}
-	return count
+	sort.SliceStable(orphans, func(i, j int) bool { return orphans[i].RelPath < orphans[j].RelPath })
+	return orphans
+}
+
+func CountBrokenWikiLinks(idx *VaultIndex, resolver *IndexResolver) int {
+	return len(BrokenWikiLinks(idx, resolver))
+}
+
+func CountOrphanNotes(idx *VaultIndex, resolver *IndexResolver) int {
+	return len(OrphanNotes(idx, resolver))
 }

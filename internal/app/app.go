@@ -689,6 +689,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.tags(w, r)
 	case "/_todo":
 		s.todo(w, r)
+	case "/_broken-links":
+		s.brokenLinks(w, r)
+	case "/_orphans":
+		s.orphans(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/_tags/") {
 			s.tag(w, r)
@@ -791,6 +795,26 @@ func (s *Server) paletteAPI(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(items)
+}
+
+func (s *Server) brokenLinks(w http.ResponseWriter, r *http.Request) {
+	idx, err := s.vault.BuildIndex()
+	c := s.common("Broken links")
+	c["Err"] = err
+	if idx != nil {
+		c["BrokenLinks"] = BrokenWikiLinks(idx, NewIndexResolver(idx))
+	}
+	s.render(w, "broken-links", c)
+}
+
+func (s *Server) orphans(w http.ResponseWriter, r *http.Request) {
+	idx, err := s.vault.BuildIndex()
+	c := s.common("Orphan notes")
+	c["Err"] = err
+	if idx != nil {
+		c["Orphans"] = OrphanNotes(idx, NewIndexResolver(idx))
+	}
+	s.render(w, "orphans", c)
 }
 
 func (s *Server) todo(w http.ResponseWriter, r *http.Request) {

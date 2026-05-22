@@ -14,7 +14,15 @@ type NoteMeta struct {
 	Title             string
 	Tags              []string
 	OutgoingWikiLinks []string
+	OutgoingLinks     []WikiLinkOccurrence
 	ModTime           time.Time
+}
+
+type WikiLinkOccurrence struct {
+	Target  string
+	Display string
+	Context string
+	LineNo  int
 }
 
 type VaultIndex struct {
@@ -39,6 +47,7 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 			Title:             v.Title(note),
 			Tags:              extractTags(note),
 			OutgoingWikiLinks: extractOutgoingWikiLinks(note.Body),
+			OutgoingLinks:     extractWikiLinkOccurrences(note.Body),
 			ModTime:           note.ModTime,
 		}
 		idx.Notes = append(idx.Notes, meta)
@@ -103,11 +112,12 @@ func normalizeTag(raw string) string {
 	return strings.ToLower(tag)
 }
 
+var wikiLinkTargetRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+
 func extractOutgoingWikiLinks(body string) []string {
 	seen := map[string]bool{}
 	var links []string
-	re := regexp.MustCompile(`\[\[([^\]]+)\]\]`)
-	for _, match := range re.FindAllStringSubmatch(body, -1) {
+	for _, match := range wikiLinkTargetRe.FindAllStringSubmatch(body, -1) {
 		target := strings.TrimSpace(strings.Split(strings.Split(match[1], "|")[0], "#")[0])
 		if target == "" || seen[target] {
 			continue
@@ -116,5 +126,26 @@ func extractOutgoingWikiLinks(body string) []string {
 		links = append(links, target)
 	}
 	sort.Strings(links)
+	return links
+}
+
+func extractWikiLinkOccurrences(body string) []WikiLinkOccurrence {
+	var links []WikiLinkOccurrence
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		for _, match := range wikiLinkTargetRe.FindAllStringSubmatch(line, -1) {
+			raw := strings.TrimSpace(match[1])
+			parts := strings.SplitN(raw, "|", 2)
+			target := strings.TrimSpace(strings.Split(parts[0], "#")[0])
+			if target == "" {
+				continue
+			}
+			display := target
+			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+				display = strings.TrimSpace(parts[1])
+			}
+			links = append(links, WikiLinkOccurrence{Target: target, Display: display, Context: strings.TrimSpace(line), LineNo: i + 1})
+		}
+	}
 	return links
 }

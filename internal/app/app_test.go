@@ -344,6 +344,72 @@ func TestDashboardLinkHealthUsesIndexResolver(t *testing.T) {
 	}
 }
 
+func TestBrokenLinksAndOrphanNotesPages(t *testing.T) {
+	v := makeVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewIndexResolver(idx)
+	broken := BrokenWikiLinks(idx, resolver)
+	if len(broken) != 1 || broken[0].Target != "Missing" || broken[0].Source.RelPath != "Areas/Daily Briefings/2026-05-22-briefing.md" {
+		t.Fatalf("unexpected broken links: %+v", broken)
+	}
+	orphans := OrphanNotes(idx, resolver)
+	if len(orphans) == 0 || !noteMetaSliceContainsRel(orphans, "Areas/TODO.md") {
+		t.Fatalf("expected TODO orphan note in: %+v", orphans)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_broken-links", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<h1>Broken links</h1>`,
+		`Missing`,
+		`Daily Briefing`,
+		`Hello [[Target|the target]] and [[Missing]].`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing broken links markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_orphans", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{
+		`<h1>Orphan notes</h1>`,
+		`Areas/TODO.md`,
+		`href="/Areas/TODO.md"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing orphan notes markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{`href="/_broken-links"`, `href="/_orphans"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dashboard metric should link to detail page %q in:\n%s", want, body)
+		}
+	}
+}
+
+func noteMetaSliceContainsRel(items []NoteMeta, rel string) bool {
+	for _, item := range items {
+		if item.RelPath == rel {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	v := makeVault(t)
 	path := filepath.Join(v.Root, "Areas", "TODO.md")
