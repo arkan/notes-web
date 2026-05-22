@@ -44,6 +44,7 @@ type RenderedDoc struct {
 	Title, HTML string
 	Toc         []TOCItem
 	Frontmatter map[string]any
+	Tags        []string
 }
 type TOCItem struct {
 	Level    int
@@ -368,7 +369,7 @@ func (r *Renderer) Render(n Note) RenderedDoc {
 	_ = r.md.Convert([]byte(body), &buf)
 	fm := renderFrontmatter(n.Frontmatter)
 	htmlBody := normalizeRenderedHTML(fm + buf.String())
-	return RenderedDoc{Title: r.vault.Title(n), HTML: htmlBody, Toc: tocFromMarkdown(n.Body), Frontmatter: n.Frontmatter}
+	return RenderedDoc{Title: r.vault.Title(n), HTML: htmlBody, Toc: tocFromMarkdown(n.Body), Frontmatter: n.Frontmatter, Tags: extractTags(n)}
 }
 
 func normalizeRenderedHTML(s string) string {
@@ -681,7 +682,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.resolve(w, r)
 	case "/_missing":
 		s.missing(w, r)
+	case "/_tags":
+		s.tags(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/_tags/") {
+			s.tag(w, r)
+			return
+		}
 		s.path(w, r)
 	}
 }
@@ -743,6 +750,42 @@ func (s *Server) missing(w http.ResponseWriter, r *http.Request) {
 	c["Name"] = r.URL.Query().Get("name")
 	w.WriteHeader(404)
 	s.render(w, "missing", c)
+}
+
+func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
+	idx, err := s.vault.BuildIndex()
+	c := s.common("Tags")
+	c["Err"] = err
+	c["Tags"] = tagSummaries(idx)
+	s.render(w, "tags", c)
+}
+
+func (s *Server) tag(w http.ResponseWriter, r *http.Request) {
+	tag := normalizeTag(strings.TrimPrefix(r.URL.Path, "/_tags/"))
+	idx, err := s.vault.BuildIndex()
+	c := s.common("#" + tag)
+	c["Err"] = err
+	c["Tag"] = tag
+	if idx != nil {
+		c["Notes"] = idx.Tags[tag]
+	}
+	s.render(w, "tag", c)
+}
+
+func tagSummaries(idx *VaultIndex) []map[string]any {
+	if idx == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(idx.Tags))
+	for tag := range idx.Tags {
+		keys = append(keys, tag)
+	}
+	sort.Strings(keys)
+	out := make([]map[string]any, 0, len(keys))
+	for _, tag := range keys {
+		out = append(out, map[string]any{"Tag": tag, "Count": len(idx.Tags[tag]), "URL": "/_tags/" + url.PathEscape(tag)})
+	}
+	return out
 }
 
 func (s *Server) path(w http.ResponseWriter, r *http.Request) {

@@ -250,6 +250,39 @@ func TestTaskMetadataRendersAsReadableBadges(t *testing.T) {
 	}
 }
 
+func TestTagsPagesAndBadges(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_tags", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{`<h1>Tags</h1>`, `href="/_tags/daily"`, `#daily`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing tags index markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_tags/daily", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{`<h1>#daily</h1>`, `Daily Briefing`, `/Areas/Daily%20Briefings/2026-05-22-briefing.md`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing tag detail markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	if !strings.Contains(body, `class="tag-badge" href="/_tags/daily"`) {
+		t.Fatalf("missing note tag badge in:\n%s", body)
+	}
+}
+
 func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
