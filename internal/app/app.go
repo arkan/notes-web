@@ -376,8 +376,27 @@ func (r *Renderer) Render(n Note) RenderedDoc {
 func normalizeRenderedHTML(s string) string {
 	s = strings.ReplaceAll(s, `<input checked="" disabled="" type="checkbox">`, `<input type="checkbox" checked disabled>`)
 	s = strings.ReplaceAll(s, `<input disabled="" type="checkbox">`, `<input type="checkbox" disabled>`)
+	s = decorateTaskLists(s)
+	s = decorateTaskMetadata(s)
 	tidRe := regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
 	s = tidRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
+	return s
+}
+
+func decorateTaskLists(s string) string {
+	if !strings.Contains(s, `type="checkbox"`) {
+		return s
+	}
+	s = strings.ReplaceAll(s, "<ul>\n<li><input", "<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input")
+	s = strings.ReplaceAll(s, "</li>\n<li><input", "</li>\n<li class=\"task-list-item\"><input")
+	return s
+}
+
+func decorateTaskMetadata(s string) string {
+	dueRe := regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
+	s = dueRe.ReplaceAllString(s, `<span class="task-meta due-date" title="Due date">📅 $1</span>`)
+	doneRe := regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
+	s = doneRe.ReplaceAllString(s, `<span class="task-meta done-date" title="Done date">✅ $1</span>`)
 	return s
 }
 

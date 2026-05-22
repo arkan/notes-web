@@ -118,6 +118,40 @@ func TestTODOShowsCopyableTaskIDs(t *testing.T) {
 	}
 }
 
+func TestTaskMetadataRendersAsReadableBadges(t *testing.T) {
+	v := makeVault(t)
+	note, err := v.ReadNote("Areas/TODO.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewRenderer(v).Render(note)
+	for _, want := range []string{
+		`<span class="task-meta due-date" title="Due date">📅 2026-05-19</span>`,
+		`<span class="task-meta done-date" title="Done date">✅ 2026-05-20</span>`,
+	} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("missing task metadata badge %q in TODO HTML:\n%s", want, doc.HTML)
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".contains-task-list{padding-left:0;list-style:none}",
+		".task-list-item{display:flex;align-items:baseline;gap:10px;",
+		".task-meta{display:inline-flex",
+		".done-date",
+		".due-date",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing task CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
 func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
