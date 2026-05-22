@@ -176,6 +176,32 @@ func TestBacklinksAndSearch(t *testing.T) {
 	}
 }
 
+func TestSearchRanksTitleMatchesAndHighlightsSnippets(t *testing.T) {
+	v := makeVault(t)
+	results, err := NewSearcher(v).Search("target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("expected multiple search results, got %+v", results)
+	}
+	if results[0].RelPath != "Areas/Target.md" {
+		t.Fatalf("title match should rank first, got %+v", results)
+	}
+	foundHighlightedSnippet := false
+	for _, result := range results {
+		if strings.Contains(result.SnippetHTML, `<mark>target</mark>`) || strings.Contains(result.SnippetHTML, `<mark>Target</mark>`) {
+			foundHighlightedSnippet = true
+		}
+		if strings.Contains(result.SnippetHTML, "<script") {
+			t.Fatalf("snippet HTML must be escaped: %+v", result)
+		}
+	}
+	if !foundHighlightedSnippet {
+		t.Fatalf("expected highlighted snippet in results: %+v", results)
+	}
+}
+
 func TestTODOShowsCopyableTaskIDs(t *testing.T) {
 	v := makeVault(t)
 	note, err := v.ReadNote("Areas/TODO.md")

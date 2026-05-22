@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -52,8 +50,8 @@ type TOCItem struct {
 	Text, ID string
 }
 type SearchResult struct {
-	RelPath, URL, Line, Snippet string
-	LineNo                      int
+	RelPath, URL, Title, Line, Snippet, SnippetHTML string
+	LineNo, Score                                   int
 }
 type Config struct {
 	Favorites []string
@@ -571,59 +569,85 @@ func (s *Searcher) Search(q string) ([]SearchResult, error) {
 	if q == "" {
 		return nil, nil
 	}
-	if _, err := exec.LookPath("rg"); err == nil {
-		return s.searchRG(q)
-	}
-	return s.searchFallback(q), nil
-}
-
-func (s *Searcher) searchRG(q string) ([]SearchResult, error) {
-	cmd := exec.Command("rg", "--json", "-i", "--glob", "*.md", q, s.vault.Root)
-	out, err := cmd.Output()
+	idx, err := s.vault.BuildIndex()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
-			return nil, nil
-		}
 		return nil, err
 	}
-	var res []SearchResult
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		var obj map[string]any
-		if json.Unmarshal(scanner.Bytes(), &obj) != nil || obj["type"] != "match" {
+	ql := strings.ToLower(q)
+	var results []SearchResult
+	for _, meta := range idx.Notes {
+		note, err := s.vault.ReadNote(meta.RelPath)
+		if err != nil {
+			return nil, err
+		}
+		line, lineNo := bestSearchLine(note, ql)
+		score := searchScore(meta, note, ql, lineNo > 0)
+		if score == 0 {
 			continue
 		}
-		data := obj["data"].(map[string]any)
-		path := data["path"].(map[string]any)["text"].(string)
-		lines := data["lines"].(map[string]any)["text"].(string)
-		ln := int(data["line_number"].(float64))
-		rel := s.vault.Rel(path)
-		res = append(res, SearchResult{RelPath: rel, URL: s.vault.URLForRel(rel), Line: fmt.Sprint(ln), LineNo: ln, Snippet: strings.TrimSpace(lines)})
+		if line == "" {
+			line = meta.Title
+		}
+		results = append(results, SearchResult{
+			RelPath:     meta.RelPath,
+			URL:         meta.URL,
+			Title:       meta.Title,
+			Line:        fmt.Sprint(lineNo),
+			LineNo:      lineNo,
+			Snippet:     strings.TrimSpace(line),
+			SnippetHTML: highlightSearchSnippet(line, ql),
+			Score:       score,
+		})
 	}
-	return res, nil
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		if results[i].Title != results[j].Title {
+			return strings.ToLower(results[i].Title) < strings.ToLower(results[j].Title)
+		}
+		return results[i].RelPath < results[j].RelPath
+	})
+	return results, nil
 }
 
-func (s *Searcher) searchFallback(q string) []SearchResult {
-	var res []SearchResult
-	ql := strings.ToLower(q)
-	for _, p := range s.vault.MarkdownFiles() {
-		f, _ := os.Open(p)
-		if f == nil {
-			continue
-		}
-		scanner := bufio.NewScanner(f)
-		ln := 0
-		for scanner.Scan() {
-			ln++
-			line := scanner.Text()
-			if strings.Contains(strings.ToLower(line), ql) {
-				rel := s.vault.Rel(p)
-				res = append(res, SearchResult{RelPath: rel, URL: s.vault.URLForRel(rel), Line: fmt.Sprint(ln), LineNo: ln, Snippet: strings.TrimSpace(line)})
-			}
-		}
-		_ = f.Close()
+func searchScore(meta NoteMeta, note Note, ql string, hasContentMatch bool) int {
+	score := 0
+	title := strings.ToLower(meta.Title)
+	rel := strings.ToLower(meta.RelPath)
+	body := strings.ToLower(note.Body)
+	switch {
+	case title == ql:
+		score += 1000
+	case strings.Contains(title, ql):
+		score += 700
 	}
-	return res
+	if strings.Contains(rel, ql) {
+		score += 300
+	}
+	if hasContentMatch || strings.Contains(body, ql) {
+		score += 100
+	}
+	return score
+}
+
+func bestSearchLine(note Note, ql string) (string, int) {
+	lines := strings.Split(note.Body, "\n")
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(line), ql) {
+			return line, i + 1
+		}
+	}
+	return "", 0
+}
+
+func highlightSearchSnippet(snippet, ql string) string {
+	escaped := html.EscapeString(strings.TrimSpace(snippet))
+	if ql == "" {
+		return escaped
+	}
+	re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(ql))
+	return re.ReplaceAllStringFunc(escaped, func(match string) string { return `<mark>` + match + `</mark>` })
 }
 
 type Server struct {
