@@ -145,7 +145,7 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	}
 }
 
-func TestMainContainerUsesAvailableWidth(t *testing.T) {
+func TestMainContainerUsesAvailableWidthWithoutHorizontalPageOverflow(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
 	w := httptest.NewRecorder()
@@ -155,7 +155,15 @@ func TestMainContainerUsesAvailableWidth(t *testing.T) {
 	if strings.Contains(css, ".main{max-width:") {
 		t.Fatalf("main container should not have a max-width cap:\n%s", css)
 	}
-	if !strings.Contains(css, ".main{width:100%;") {
-		t.Fatalf("main container should fill available width:\n%s", css)
+	for _, want := range []string{
+		".shell{display:grid;grid-template-columns:300px minmax(0,1fr);",
+		".main{min-width:0;width:100%;",
+		".note header{display:flex;align-items:start;justify-content:space-between;gap:20px;min-width:0}",
+		".content{font-size:17px;overflow-wrap:anywhere}",
+		".content a{overflow-wrap:anywhere}",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing overflow-safe CSS %q in:\n%s", want, css)
+		}
 	}
 }
