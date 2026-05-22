@@ -34,7 +34,8 @@ func (v *Vault) BuildDashboard() (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
-	d := Dashboard{LatestDaily: v.LatestDaily(), BrokenLinkCount: v.CountBrokenWikiLinks(idx), OrphanNoteCount: v.CountOrphanNotes(idx)}
+	resolver := NewIndexResolver(idx)
+	d := Dashboard{LatestDaily: v.LatestDaily(), BrokenLinkCount: CountBrokenWikiLinks(idx, resolver), OrphanNoteCount: CountOrphanNotes(idx, resolver)}
 	for _, task := range tasks {
 		if !task.Completed {
 			d.OpenTasks = append(d.OpenTasks, task)
@@ -151,14 +152,84 @@ func cleanTaskText(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func (v *Vault) CountBrokenWikiLinks(idx *VaultIndex) int {
+type IndexResolution struct {
+	Kind    string
+	RelPath string
+}
+
+type IndexResolver struct {
+	byRel  map[string][]string
+	byStem map[string][]string
+}
+
+func NewIndexResolver(idx *VaultIndex) *IndexResolver {
+	resolver := &IndexResolver{byRel: map[string][]string{}, byStem: map[string][]string{}}
+	if idx == nil {
+		return resolver
+	}
+	for _, note := range idx.Notes {
+		rel := note.RelPath
+		resolver.byRel[rel] = append(resolver.byRel[rel], rel)
+		noExt := strings.TrimSuffix(rel, filepath.Ext(rel))
+		resolver.byRel[noExt] = append(resolver.byRel[noExt], rel)
+		base := filepath.Base(rel)
+		resolver.byStem[base] = append(resolver.byStem[base], rel)
+		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		resolver.byStem[stem] = append(resolver.byStem[stem], rel)
+	}
+	return resolver
+}
+
+func (r *IndexResolver) Resolve(raw string) IndexResolution {
+	if r == nil {
+		return IndexResolution{Kind: "missing"}
+	}
+	target := strings.TrimSpace(strings.Split(strings.Split(raw, "|")[0], "#")[0])
+	if target == "" {
+		return IndexResolution{Kind: "missing"}
+	}
+	var matches []string
+	if strings.Contains(target, "/") || strings.HasSuffix(strings.ToLower(target), ".md") {
+		matches = append(matches, r.byRel[target]...)
+		if filepath.Ext(target) == "" {
+			matches = append(matches, r.byRel[target+".md"]...)
+		}
+	} else {
+		matches = append(matches, r.byStem[target]...)
+	}
+	matches = uniqueStrings(matches)
+	switch len(matches) {
+	case 0:
+		return IndexResolution{Kind: "missing"}
+	case 1:
+		return IndexResolution{Kind: "unique", RelPath: matches[0]}
+	default:
+		return IndexResolution{Kind: "ambiguous"}
+	}
+}
+
+func uniqueStrings(items []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func CountBrokenWikiLinks(idx *VaultIndex, resolver *IndexResolver) int {
 	if idx == nil {
 		return 0
 	}
 	count := 0
 	for _, note := range idx.Notes {
 		for _, target := range note.OutgoingWikiLinks {
-			if v.ResolveWikiLink(target).Kind == "missing" {
+			if resolver.Resolve(target).Kind == "missing" {
 				count++
 			}
 		}
@@ -166,16 +237,16 @@ func (v *Vault) CountBrokenWikiLinks(idx *VaultIndex) int {
 	return count
 }
 
-func (v *Vault) CountOrphanNotes(idx *VaultIndex) int {
+func CountOrphanNotes(idx *VaultIndex, resolver *IndexResolver) int {
 	if idx == nil {
 		return 0
 	}
 	incoming := map[string]int{}
 	for _, note := range idx.Notes {
 		for _, target := range note.OutgoingWikiLinks {
-			res := v.ResolveWikiLink(target)
+			res := resolver.Resolve(target)
 			if res.Kind == "unique" {
-				incoming[res.Matches[0].RelPath]++
+				incoming[res.RelPath]++
 			}
 		}
 	}

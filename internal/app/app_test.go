@@ -320,6 +320,30 @@ func TestDashboardSummarizesDailyTodosAndLinkHealth(t *testing.T) {
 	}
 }
 
+func TestDashboardLinkHealthUsesIndexResolver(t *testing.T) {
+	v := makeVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewIndexResolver(idx)
+	if got := resolver.Resolve("Target"); got.Kind != "unique" || got.RelPath != "Areas/Target.md" {
+		t.Fatalf("unexpected Target resolution: %+v", got)
+	}
+	if got := resolver.Resolve("Meeting Notes"); got.Kind != "ambiguous" {
+		t.Fatalf("unexpected Meeting Notes resolution: %+v", got)
+	}
+	if got := resolver.Resolve("Missing"); got.Kind != "missing" {
+		t.Fatalf("unexpected Missing resolution: %+v", got)
+	}
+	if broken := CountBrokenWikiLinks(idx, resolver); broken != 1 {
+		t.Fatalf("broken links=%d want 1", broken)
+	}
+	if orphans := CountOrphanNotes(idx, resolver); orphans == 0 {
+		t.Fatalf("expected orphan notes")
+	}
+}
+
 func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	v := makeVault(t)
 	path := filepath.Join(v.Root, "Areas", "TODO.md")
