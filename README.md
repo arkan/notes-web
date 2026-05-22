@@ -56,6 +56,71 @@ Open:
 http://127.0.0.1:8080/
 ```
 
+## Install/run with Nix
+
+From a local checkout:
+
+```bash
+nix run . -- --vault /path/to/vault
+nix profile install .
+```
+
+From GitHub:
+
+```bash
+nix run github:arkan/notes-web -- --vault /path/to/vault
+nix profile install github:arkan/notes-web
+```
+
+### NixOS system service
+
+```nix
+{
+  inputs.notes-web.url = "github:arkan/notes-web";
+
+  outputs = { nixpkgs, notes-web, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        notes-web.nixosModules.default
+        {
+          services.notes-web = {
+            enable = true;
+            mode = "system";
+            vault = "/home/alice/Notes";
+            host = "127.0.0.1";
+            port = 8080;
+
+            # If the vault is in an existing user's home, usually run as that user.
+            user = "alice";
+            group = "users";
+            createUser = false;
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+### NixOS systemd user service
+
+```nix
+{
+  services.notes-web = {
+    enable = true;
+    mode = "user";
+    user = "alice";
+    createUser = false;
+    vault = "/home/alice/Notes";
+    host = "127.0.0.1";
+    port = 8080;
+  };
+}
+```
+
+For Basic Auth in a NixOS service, set `auth.user`, `auth.passwordEnv`, and provide the secret through `environmentFile`.
+
 ## Run over Tailscale or LAN with Basic Auth
 
 ```bash
