@@ -296,8 +296,8 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 	s.ServeHTTP(w, r)
 	css := w.Body.String()
 	for _, want := range []string{
-		`.reading-surface{max-width:var(--measure)`,
-		`.frontmatter{width:min(100%,var(--measure))`,
+		`.reading-surface{max-width:none`,
+		`.frontmatter{width:100%;max-width:none`,
 		`.sidebar-footer{position:sticky;bottom:0`,
 		`.settings-modal[hidden]{display:none}`,
 		`.settings-dialog`,
@@ -388,7 +388,7 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 	}
 }
 
-func TestReadingMeasureUsesMoreAvailablePageWidth(t *testing.T) {
+func TestPrimaryPagesUseFluidFullWidthSurface(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
 	w := httptest.NewRecorder()
@@ -396,12 +396,23 @@ func TestReadingMeasureUsesMoreAvailablePageWidth(t *testing.T) {
 	s.ServeHTTP(w, r)
 	css := w.Body.String()
 	for _, want := range []string{
-		`--measure:1180px`,
-		`.crumb.reading-surface`,
-		`.reading-surface{max-width:var(--measure)`,
+		`--measure:100%`,
+		`.reading-surface{max-width:none`,
+		`.note .content>p,.note .content>ul,.note .content>ol,.note .content>blockquote,.note .content>details,.note .content>h1,.note .content>h2,.note .content>h3,.note .content>h4,.note .content>h5,.note .content>h6{width:100%;margin-left:0;margin-right:0}`,
+		`.content .contains-task-list{padding-left:0;list-style:none;display:grid;gap:12px;max-width:none;margin-left:0;margin-right:0}`,
 	} {
 		if !strings.Contains(css, want) {
-			t.Fatalf("missing wider aligned reading CSS %q in:\n%s", want, css)
+			t.Fatalf("missing fluid full-width layout CSS %q in:\n%s", want, css)
+		}
+	}
+	for _, unwanted := range []string{
+		`--measure:1180px`,
+		`.reading-surface{max-width:var(--measure);margin-inline:auto}`,
+		`width:min(100%,var(--measure))`,
+		`max-width:var(--measure);margin-left:auto;margin-right:auto`,
+	} {
+		if strings.Contains(css, unwanted) {
+			t.Fatalf("layout still contains restrictive width CSS %q in:\n%s", unwanted, css)
 		}
 	}
 }
@@ -839,9 +850,9 @@ func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T)
 	s.ServeHTTP(w, r)
 	css := w.Body.String()
 	for _, want := range []string{
-		"--measure:1180px",
+		"--measure:100%",
 		".content{font-size:17px;line-height:1.72;overflow-wrap:anywhere}",
-		".content>:where(p,ul,ol,blockquote,details,dl){max-width:var(--measure)}",
+		".content>:where(p,ul,ol,blockquote,details,dl){max-width:100%}",
 		".content>:where(pre,table,.mermaid,img){max-width:100%}",
 		".content p{margin:0 0 1.05rem}",
 		".content h2{margin:2.2rem 0 1rem}",
