@@ -58,6 +58,7 @@ type SearchResult struct {
 type Config struct {
 	Favorites []string
 	DailyGlob string
+	Hidden    []string
 }
 type TreeNode struct {
 	Name, Rel, URL string
@@ -117,15 +118,48 @@ func (v *Vault) IsMarkdown(p string) bool {
 }
 
 func (v *Vault) MarkdownFiles() []string {
+	cfg := v.LoadConfig()
 	var out []string
 	_ = filepath.WalkDir(v.Root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && v.IsMarkdown(p) {
+		if err != nil {
+			return nil
+		}
+		rel := v.Rel(p)
+		if rel != "." && v.isHiddenRel(rel, cfg.Hidden) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() && v.IsMarkdown(p) {
 			out = append(out, p)
 		}
 		return nil
 	})
 	sort.Strings(out)
 	return out
+}
+
+func (v *Vault) isHiddenRel(rel string, configured []string) bool {
+	rel = filepath.ToSlash(strings.Trim(rel, "/"))
+	if rel == "." || rel == "" {
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	for _, hidden := range configured {
+		hidden = filepath.ToSlash(strings.Trim(hidden, " /"))
+		if hidden == "" {
+			continue
+		}
+		if rel == hidden || strings.HasPrefix(rel, hidden+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *Vault) ReadNote(relOrAbs string) (Note, error) {
@@ -239,24 +273,36 @@ func (v *Vault) LoadConfig() Config {
 		return cfg
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(b)))
-	inFav := false
+	section := ""
 	for scanner.Scan() {
-		line := scanner.Text()
-		tr := strings.TrimSpace(line)
+		tr := strings.TrimSpace(scanner.Text())
+		if tr == "" || strings.HasPrefix(tr, "#") {
+			continue
+		}
 		if strings.HasPrefix(tr, "daily_glob:") {
 			cfg.DailyGlob = strings.Trim(strings.TrimSpace(strings.TrimPrefix(tr, "daily_glob:")), "'\"")
+			section = ""
+			continue
 		}
 		if strings.HasPrefix(tr, "favorites:") {
-			inFav = true
+			section = "favorites"
 			continue
 		}
-		if inFav && strings.HasPrefix(tr, "-") {
-			cfg.Favorites = append(cfg.Favorites, strings.Trim(strings.TrimSpace(strings.TrimPrefix(tr, "-")), "'\""))
+		if strings.HasPrefix(tr, "hidden:") {
+			section = "hidden"
 			continue
 		}
-		if inFav && tr != "" && !strings.HasPrefix(tr, "#") {
-			inFav = false
+		if strings.HasPrefix(tr, "-") {
+			value := strings.Trim(strings.TrimSpace(strings.TrimPrefix(tr, "-")), "'\"")
+			switch section {
+			case "favorites":
+				cfg.Favorites = append(cfg.Favorites, value)
+			case "hidden":
+				cfg.Hidden = append(cfg.Hidden, value)
+			}
+			continue
 		}
+		section = ""
 	}
 	return cfg
 }

@@ -344,6 +344,43 @@ func TestDashboardLinkHealthUsesIndexResolver(t *testing.T) {
 	}
 }
 
+func TestMarkdownFilesSkipHiddenDirectories(t *testing.T) {
+	v := makeVault(t)
+	hidden := filepath.Join(v.Root, ".claude", "Hidden.md")
+	if err := os.MkdirAll(filepath.Dir(hidden), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hidden, []byte("# Hidden\n[[MissingHidden]]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configuredHidden := filepath.Join(v.Root, "Private", "Hidden.md")
+	if err := os.MkdirAll(filepath.Dir(configuredHidden), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configuredHidden, []byte("# Config Hidden\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - Areas/Daily Briefings\nhidden:\n  - Private\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range v.MarkdownFiles() {
+		rel := v.Rel(p)
+		if strings.HasPrefix(rel, ".claude/") || strings.HasPrefix(rel, "Private/") {
+			t.Fatalf("hidden markdown file should be skipped, got %s in %+v", rel, v.MarkdownFiles())
+		}
+	}
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := idx.ByRel[".claude/Hidden.md"]; ok {
+		t.Fatalf("hidden dotdir note should not be indexed")
+	}
+	if _, ok := idx.ByRel["Private/Hidden.md"]; ok {
+		t.Fatalf("configured hidden note should not be indexed")
+	}
+}
+
 func TestBrokenLinksAndOrphanNotesPages(t *testing.T) {
 	v := makeVault(t)
 	idx, err := v.BuildIndex()
