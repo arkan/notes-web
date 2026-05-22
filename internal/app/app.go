@@ -1223,7 +1223,10 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 		items = append(items, map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel)})
 	}
 	c := s.common(filepath.Base(p))
-	c["Path"] = s.vault.Rel(p)
+	relPath := s.vault.Rel(p)
+	c["Path"] = relPath
+	c["FolderName"] = filepath.Base(p)
+	c["Breadcrumbs"] = breadcrumbsForRel(s.vault, relPath)
 	c["Items"] = items
 	s.render(w, "folder", c)
 }
