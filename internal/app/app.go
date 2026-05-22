@@ -880,7 +880,7 @@ type Server struct {
 
 func NewServer(v *Vault, user, pass string) *Server {
 	s := &Server{vault: v, renderer: NewRenderer(v), searcher: NewSearcher(v), user: user, pass: pass}
-	s.templates = template.Must(template.New("all").Funcs(template.FuncMap{"safe": func(x string) template.HTML { return template.HTML(x) }, "url": v.URLForRel}).Parse(templates))
+	s.templates = template.Must(template.New("all").Funcs(template.FuncMap{"safe": func(x string) template.HTML { return template.HTML(x) }, "url": v.URLForRel}).ParseFS(templateFS, "templates/*.html"))
 	return s
 }
 
@@ -1076,10 +1076,20 @@ func (s *Server) tag(w http.ResponseWriter, r *http.Request) {
 	c := s.common("#" + tag)
 	c["Err"] = err
 	c["Tag"] = tag
+	var notes []NoteMeta
 	if idx != nil {
-		c["Notes"] = idx.Tags[tag]
+		notes = idx.Tags[tag]
+		c["Notes"] = notes
 	}
+	c["TagNoteCountLabel"] = noteCountLabel(len(notes))
 	s.render(w, "tag", c)
+}
+
+func noteCountLabel(n int) string {
+	if n == 1 {
+		return "1 note"
+	}
+	return fmt.Sprintf("%d notes", n)
 }
 
 type TagSummary struct {

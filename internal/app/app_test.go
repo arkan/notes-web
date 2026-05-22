@@ -486,6 +486,48 @@ func TestTaskMetadataRendersAsReadableBadges(t *testing.T) {
 	}
 }
 
+func TestFrontendAssetsAreEmbeddedFilesWithoutNewFrameworkLayers(t *testing.T) {
+	for _, path := range []string{
+		"templates/layout.html",
+		"templates/tag.html",
+		"static/style.css",
+		"static/app.js",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected frontend asset file %s: %v", path, err)
+		}
+	}
+
+	uiSource, err := os.ReadFile("ui.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{"const templates = `", "const css = `", "const js = `"} {
+		if strings.Contains(string(uiSource), unwanted) {
+			t.Fatalf("ui.go should embed extracted assets, not keep raw string %q", unwanted)
+		}
+	}
+
+	for _, path := range []string{"templates/layout.html", "static/style.css", "static/app.js"} {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(b)
+		lower := strings.ToLower(content)
+		for _, unwanted := range []string{"alpine", "htmx"} {
+			if strings.Contains(lower, unwanted) {
+				t.Fatalf("%s should not introduce frontend framework layer %q", path, unwanted)
+			}
+		}
+		for _, leakedGoRawString := range []string{"const templates = `", "const css = `", "const js = `"} {
+			if strings.Contains(content, leakedGoRawString) {
+				t.Fatalf("%s should not contain leaked ui.go raw string marker %q", path, leakedGoRawString)
+			}
+		}
+	}
+}
+
 func TestTagsPagesAndBadges(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
@@ -504,9 +546,25 @@ func TestTagsPagesAndBadges(t *testing.T) {
 	r = httptest.NewRequest("GET", "/_tags/daily", nil)
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
-	for _, want := range []string{`<h1>#daily</h1>`, `Daily Briefing`, `/Areas/Daily%20Briefings/2026-05-22-briefing.md`} {
+	for _, want := range []string{
+		`<div class="page-header tag-detail-header">`,
+		`<p class="eyebrow">Tag</p><h1>#daily</h1>`,
+		`<span class="count">1 note</span>`,
+		`<a class="btn ghost" href="/_tags">All tags</a>`,
+		`<button class="copy-link btn ghost" data-copy-link>Copy link</button>`,
+		`<ul class="note-card-grid tag-note-list">`,
+		`<li class="note-card tag-note-card">`,
+		`Daily Briefing`,
+		`/Areas/Daily%20Briefings/2026-05-22-briefing.md`,
+		`Areas/Daily Briefings/2026-05-22-briefing.md`,
+	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("missing tag detail markup %q in:\n%s", want, body)
+			t.Fatalf("missing polished tag detail markup %q in:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`{{define "tag"}}{{template "layout-start" .}}<h1>#`, `<ul class="list"><li><a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md">Daily Briefing</a>`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("tag detail should not use bare legacy list markup %q in:\n%s", unwanted, body)
 		}
 	}
 
