@@ -996,7 +996,13 @@ func (s *Server) brokenLinks(w http.ResponseWriter, r *http.Request) {
 	c := s.common("Broken links")
 	c["Err"] = err
 	if idx != nil {
-		c["BrokenLinks"] = BrokenWikiLinks(idx, NewIndexResolver(idx))
+		links := BrokenWikiLinks(idx, NewIndexResolver(idx))
+		c["BrokenLinks"] = links
+		c["BrokenGroups"] = GroupBrokenWikiLinks(links, 50)
+		c["BrokenTotal"] = len(links)
+		c["BrokenDistinctTargets"] = BrokenDistinctTargetCount(links)
+		c["BrokenAffectedNotes"] = BrokenAffectedNoteCount(links)
+		c["BrokenTopLimit"] = 50
 	}
 	s.render(w, "broken-links", c)
 }
@@ -1006,7 +1012,9 @@ func (s *Server) orphans(w http.ResponseWriter, r *http.Request) {
 	c := s.common("Orphan notes")
 	c["Err"] = err
 	if idx != nil {
-		c["Orphans"] = OrphanNotes(idx, NewIndexResolver(idx))
+		orphans := OrphanNotes(idx, NewIndexResolver(idx))
+		c["Orphans"] = orphans
+		c["OrphanTotal"] = len(orphans)
 	}
 	s.render(w, "orphans", c)
 }
@@ -1028,7 +1036,13 @@ func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
 	idx, err := s.vault.BuildIndex()
 	c := s.common("Tags")
 	c["Err"] = err
-	c["Tags"] = tagSummaries(idx)
+	tags := tagSummaries(idx)
+	c["Tags"] = tags
+	c["PopularTags"] = popularTagSummaries(tags, 24)
+	c["RareTags"] = rareTagSummaries(tags, 80)
+	c["TagGroups"] = tagAlphabeticalGroups(tags)
+	c["TagTotal"] = len(tags)
+	c["OneOffTagCount"] = countOneOffTags(tags)
 	s.render(w, "tags", c)
 }
 
@@ -1044,7 +1058,18 @@ func (s *Server) tag(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "tag", c)
 }
 
-func tagSummaries(idx *VaultIndex) []map[string]any {
+type TagSummary struct {
+	Tag   string
+	Count int
+	URL   string
+}
+
+type TagGroup struct {
+	Letter string
+	Tags   []TagSummary
+}
+
+func tagSummaries(idx *VaultIndex) []TagSummary {
 	if idx == nil {
 		return nil
 	}
@@ -1053,11 +1078,79 @@ func tagSummaries(idx *VaultIndex) []map[string]any {
 		keys = append(keys, tag)
 	}
 	sort.Strings(keys)
-	out := make([]map[string]any, 0, len(keys))
+	out := make([]TagSummary, 0, len(keys))
 	for _, tag := range keys {
-		out = append(out, map[string]any{"Tag": tag, "Count": len(idx.Tags[tag]), "URL": "/_tags/" + url.PathEscape(tag)})
+		out = append(out, TagSummary{Tag: tag, Count: len(idx.Tags[tag]), URL: "/_tags/" + url.PathEscape(tag)})
 	}
 	return out
+}
+
+func popularTagSummaries(tags []TagSummary, limit int) []TagSummary {
+	out := append([]TagSummary(nil), tags...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Tag < out[j].Tag
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func rareTagSummaries(tags []TagSummary, limit int) []TagSummary {
+	var out []TagSummary
+	for _, tag := range tags {
+		if tag.Count <= 1 {
+			out = append(out, tag)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func countOneOffTags(tags []TagSummary) int {
+	count := 0
+	for _, tag := range tags {
+		if tag.Count <= 1 {
+			count++
+		}
+	}
+	return count
+}
+
+func tagAlphabeticalGroups(tags []TagSummary) []TagGroup {
+	groups := []TagGroup{}
+	byLetter := map[string][]TagSummary{}
+	for _, tag := range tags {
+		if tag.Count <= 1 {
+			continue
+		}
+		letter := "#"
+		if tag.Tag != "" {
+			r := []rune(strings.ToUpper(tag.Tag))[0]
+			if r >= 'A' && r <= 'Z' {
+				letter = string(r)
+			}
+		}
+		byLetter[letter] = append(byLetter[letter], tag)
+	}
+	letters := make([]string, 0, len(byLetter))
+	for letter := range byLetter {
+		letters = append(letters, letter)
+	}
+	sort.Strings(letters)
+	for _, letter := range letters {
+		items := byLetter[letter]
+		if len(items) > 40 {
+			items = items[:40]
+		}
+		groups = append(groups, TagGroup{Letter: letter, Tags: items})
+	}
+	return groups
 }
 
 func (s *Server) path(w http.ResponseWriter, r *http.Request) {

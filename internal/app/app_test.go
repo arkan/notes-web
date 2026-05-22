@@ -406,7 +406,7 @@ func TestTagsPagesAndBadges(t *testing.T) {
 	r = httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
-	if !strings.Contains(body, `class="tag-badge" href="/_tags/daily"`) {
+	if !strings.Contains(body, `class="tag-badge chip" href="/_tags/daily"`) {
 		t.Fatalf("missing note tag badge in:\n%s", body)
 	}
 }
@@ -617,15 +617,15 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`<h1>TODOs</h1>`,
-		`<h2>Overdue</h2>`,
+		`Overdue <span class="count">`,
 		`Change Captur tires`,
-		`<h2>Today</h2>`,
+		`Today <span class="count">`,
 		`Pay invoice`,
-		`<h2>Upcoming</h2>`,
+		`Upcoming <span class="count">`,
 		`Plan trip`,
-		`<h2>No due date</h2>`,
+		`No due date <span class="count">`,
 		`Read later`,
-		`<h2>Done</h2>`,
+		`Done <span class="count">`,
 		`Buy dog food`,
 	} {
 		if !strings.Contains(body, want) {
@@ -657,9 +657,9 @@ func TestNoteLinksShowForwardLinksAndBacklinkContext(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<h2>Forward links</h2>`,
+		`Forward links <span class="count">`,
 		`No forward links.`,
-		`<h2>Backlinks</h2>`,
+		`Backlinks <span class="count">`,
 		`Areas/Linker.md`,
 		`See [[Target]]`,
 	} {
@@ -673,7 +673,7 @@ func TestNoteLinksShowForwardLinksAndBacklinkContext(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
 	for _, want := range []string{
-		`<h2>Forward links</h2>`,
+		`Forward links <span class="count">`,
 		`href="/Areas/Target.md"`,
 		`class="missing-link"`,
 		`Missing`,
@@ -691,7 +691,7 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary>📁 Areas</summary>`, `data-copy-link`} {
+	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary><span aria-hidden="true">📁</span> Areas</summary>`, `data-copy-link`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in home HTML", want)
 		}
@@ -766,10 +766,10 @@ func TestCommandPaletteMarkupAPIAndClientBehavior(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<button class="palette-button" data-palette-open>⌘K</button>`,
+		`<button class="palette-button btn" data-palette-open aria-label="Open command palette">⌘K</button>`,
 		`<div class="palette" data-palette hidden>`,
 		`<input data-palette-input`,
-		`<div class="palette-results" data-palette-results>`,
+		`<div class="palette-results" data-palette-results role="listbox">`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing palette markup %q in:\n%s", want, body)
@@ -812,7 +812,7 @@ func TestMobileSidebarOverlayBehavior(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<button class="mobile-menu" data-sidebar-toggle aria-label="Open sidebar" aria-expanded="false">☰</button>`,
+		`<button class="mobile-menu btn icon-btn" data-sidebar-toggle aria-label="Open sidebar" aria-expanded="false">☰</button>`,
 		`<div class="sidebar-backdrop" data-sidebar-close></div>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -908,6 +908,179 @@ func TestThemeControlsSupportLightDarkSepiaAndAuto(t *testing.T) {
 	}
 }
 
+func TestVisualPolishFoundationAndPaletteStates(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		"--surface:",
+		"--surface-raised:",
+		"--space-4:",
+		"--radius-lg:",
+		":focus-visible",
+		".btn",
+		".chip",
+		".empty-state",
+		".palette-item.is-selected",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing visual foundation CSS %q in:\n%s", want, css)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"paletteSelectedIndex",
+		"aria-selected",
+		"Enter",
+		"ArrowDown",
+		"ArrowUp",
+		"palette-shortcuts",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing polished palette JS %q in:\n%s", want, js)
+		}
+	}
+}
+
+func TestSearchResultsAreRichAndEmptyStateIsHelpful(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_search?q=tag%3Adaily+target", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`class="search-result-card"`,
+		`class="result-title"`,
+		`class="result-path"`,
+		`class="result-snippet"`,
+		`Search syntax`,
+		`Examples:`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing rich search result markup %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `Daily Briefing.md:0</a>`) || strings.Contains(body, `:0</a>`) {
+		t.Fatalf("search results should not expose raw :0 line suffixes:\n%s", body)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_search?q=not-a-real-query", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{`class="empty-state"`, `No results for`, `Try a broader search`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing helpful empty state %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_todo?today=2026-05-20", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`class="todo-group overdue"`,
+		`Overdue <span class="count">1</span>`,
+		`class="task-row"`,
+		`class="task-date overdue-date"`,
+		`title="Copy task ID"`,
+		`class="task-id"`,
+		`<details class="todo-group done"`,
+		`<summary><h2>Done <span class="count">1</span></h2></summary>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing TODO polish markup %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestTagsPageUsesProgressiveDisclosureAndControls(t *testing.T) {
+	v := makeVault(t)
+	// Create enough one-off tags to prove rare tags are not dumped into the main view.
+	for i := 0; i < 8; i++ {
+		p := filepath.Join(v.Root, "Areas", "Tags", "Rare"+string(rune('A'+i))+".md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("---\ntags: [rare"+string(rune('a'+i))+"]\n---\n# Rare\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_tags", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`class="tag-stats"`,
+		`class="tag-controls"`,
+		`placeholder="Filter tags…"`,
+		`Popular tags`,
+		`Alphabetical index`,
+		`Rare tags`,
+		`data-tag-filter`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing progressive tags markup %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestDiagnosticsPagesGroupAndLimitMassiveLists(t *testing.T) {
+	v := makeVault(t)
+	p := filepath.Join(v.Root, "Areas", "ManyBroken.md")
+	if err := os.WriteFile(p, []byte("# Many\n[[Missing]]\n[[OtherMissing]]\n[[Missing]]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_broken-links", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`class="diagnostic-summary"`,
+		`distinct targets`,
+		`class="broken-link-group"`,
+		`<summary><strong>Missing</strong>`,
+		`occurrences`,
+		`Show top`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing grouped broken-link markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_orphans", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{`class="diagnostic-summary"`, `class="filter-bar"`, `class="note-card-grid"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing orphan diagnostics markup %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestUISmokeScriptExists(t *testing.T) {
+	if _, err := os.Stat(filepath.Join("..", "..", "scripts", "ui-smoke.sh")); err != nil {
+		t.Fatalf("expected UI smoke script: %v", err)
+	}
+}
+
 func TestSidebarHighlightsActiveNoteAndOpensContainingFolders(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
@@ -917,7 +1090,7 @@ func TestSidebarHighlightsActiveNoteAndOpensContainingFolders(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`<details class="tree-folder active-branch" data-tree-path="Areas" open>`,
-		`<a class="active" aria-current="page" href="/Areas/Target.md">📄 Target.md</a>`,
+		`<a class="active" aria-current="page" href="/Areas/Target.md"><span aria-hidden="true">📄</span> Target.md</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing active sidebar markup %q in:\n%s", want, body)

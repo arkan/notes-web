@@ -23,6 +23,27 @@ type TaskItem struct {
 	SourceURL string
 	LineNo    int
 	Completed bool
+	DateClass string
+}
+
+func (t TaskItem) DueClass(today string) string {
+	if t.Due == "" {
+		return ""
+	}
+	if t.Due < today {
+		return "overdue-date"
+	}
+	if t.Due == today {
+		return "today-date"
+	}
+	return "upcoming-date"
+}
+
+func (t TaskItem) StatusLabel() string {
+	if t.Completed {
+		return "Done"
+	}
+	return "Open"
 }
 
 func (v *Vault) BuildDashboard() (Dashboard, error) {
@@ -62,6 +83,7 @@ func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 	}
 	board := TaskBoard{}
 	for _, task := range tasks {
+		task.DateClass = task.DueClass(today)
 		switch {
 		case task.Completed:
 			board.Done = append(board.Done, task)
@@ -228,6 +250,57 @@ type BrokenWikiLink struct {
 	Display string
 	Context string
 	LineNo  int
+}
+
+type BrokenLinkGroup struct {
+	Target string
+	Items  []BrokenWikiLink
+	Total  int
+	Open   bool
+}
+
+func GroupBrokenWikiLinks(links []BrokenWikiLink, limit int) []BrokenLinkGroup {
+	byTarget := map[string][]BrokenWikiLink{}
+	for _, link := range links {
+		byTarget[link.Target] = append(byTarget[link.Target], link)
+	}
+	groups := make([]BrokenLinkGroup, 0, len(byTarget))
+	for target, items := range byTarget {
+		total := len(items)
+		if len(items) > 20 {
+			items = items[:20]
+		}
+		groups = append(groups, BrokenLinkGroup{Target: target, Items: items, Total: total})
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].Total != groups[j].Total {
+			return groups[i].Total > groups[j].Total
+		}
+		return groups[i].Target < groups[j].Target
+	})
+	for i := range groups {
+		groups[i].Open = i == 0
+	}
+	if limit > 0 && len(groups) > limit {
+		return groups[:limit]
+	}
+	return groups
+}
+
+func BrokenDistinctTargetCount(links []BrokenWikiLink) int {
+	seen := map[string]bool{}
+	for _, link := range links {
+		seen[link.Target] = true
+	}
+	return len(seen)
+}
+
+func BrokenAffectedNoteCount(links []BrokenWikiLink) int {
+	seen := map[string]bool{}
+	for _, link := range links {
+		seen[link.Source.RelPath] = true
+	}
+	return len(seen)
 }
 
 func BrokenWikiLinks(idx *VaultIndex, resolver *IndexResolver) []BrokenWikiLink {
