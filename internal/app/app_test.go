@@ -294,3 +294,33 @@ func TestThemeControlsSupportLightDarkSepiaAndAuto(t *testing.T) {
 		}
 	}
 }
+
+func TestSidebarHighlightsActiveNoteAndOpensContainingFolders(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<details class="tree-folder active-branch" data-tree-path="Areas" open>`,
+		`<a class="active" aria-current="page" href="/Areas/Target.md">📄 Target.md</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing active sidebar markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".tree a.active",
+		".tree-folder.active-branch>summary",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing active sidebar CSS %q in:\n%s", want, css)
+		}
+	}
+}

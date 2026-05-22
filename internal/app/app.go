@@ -62,6 +62,8 @@ type Config struct {
 type TreeNode struct {
 	Name, Rel, URL string
 	IsDir          bool
+	IsActive       bool
+	ContainsActive bool
 	Children       []TreeNode
 }
 
@@ -288,8 +290,11 @@ func (v *Vault) RecentNotes(limit int) []Note {
 	}
 	return notes
 }
-func (v *Vault) Tree(maxDepth int) []TreeNode { return v.tree(v.Root, 0, maxDepth) }
-func (v *Vault) tree(dir string, depth, max int) []TreeNode {
+func (v *Vault) Tree(maxDepth int) []TreeNode { return v.TreeForActive(maxDepth, "") }
+func (v *Vault) TreeForActive(maxDepth int, activeRel string) []TreeNode {
+	return v.tree(v.Root, 0, maxDepth, filepath.ToSlash(strings.TrimPrefix(activeRel, "/")))
+}
+func (v *Vault) tree(dir string, depth, max int, activeRel string) []TreeNode {
 	ents, _ := os.ReadDir(dir)
 	sort.Slice(ents, func(i, j int) bool {
 		if ents[i].IsDir() != ents[j].IsDir() {
@@ -309,7 +314,11 @@ func (v *Vault) tree(dir string, depth, max int) []TreeNode {
 		rel := v.Rel(p)
 		n := TreeNode{Name: e.Name(), Rel: rel, URL: v.URLForRel(rel), IsDir: e.IsDir()}
 		if e.IsDir() && depth < max {
-			n.Children = v.tree(p, depth+1, max)
+			n.Children = v.tree(p, depth+1, max, activeRel)
+		}
+		if activeRel != "" {
+			n.IsActive = rel == activeRel
+			n.ContainsActive = n.IsActive || strings.HasPrefix(activeRel, rel+"/")
 		}
 		out = append(out, n)
 	}
@@ -555,7 +564,11 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (s *Server) common(title string) map[string]any {
-	return map[string]any{"Title": title, "Tree": s.vault.Tree(2), "Favorites": s.vault.Favorites()}
+	return s.commonForActive(title, "")
+}
+
+func (s *Server) commonForActive(title, activeRel string) map[string]any {
+	return map[string]any{"Title": title, "Tree": s.vault.TreeForActive(2, activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel}
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -613,7 +626,7 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		doc := s.renderer.Render(n)
-		c := s.common(doc.Title)
+		c := s.commonForActive(doc.Title, n.RelPath)
 		c["Note"] = n
 		c["Doc"] = doc
 		c["Backlinks"] = s.vault.BacklinksTo(n.RelPath)
