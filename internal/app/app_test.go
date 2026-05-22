@@ -113,6 +113,42 @@ func TestCalloutsRenderWithTypesIconsTitlesAndClosedMarkup(t *testing.T) {
 	}
 }
 
+func TestVaultIndexBuildsTypedMetadata(t *testing.T) {
+	v := makeVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Notes) != len(v.MarkdownFiles()) {
+		t.Fatalf("index note count=%d want %d", len(idx.Notes), len(v.MarkdownFiles()))
+	}
+	daily, ok := idx.ByRel["Areas/Daily Briefings/2026-05-22-briefing.md"]
+	if !ok {
+		t.Fatalf("daily note missing from index: %#v", idx.ByRel)
+	}
+	if daily.Title != "Daily Briefing" || daily.URL != "/Areas/Daily%20Briefings/2026-05-22-briefing.md" {
+		t.Fatalf("bad daily metadata: %+v", daily)
+	}
+	if !stringSliceContains(daily.Tags, "daily") {
+		t.Fatalf("daily tags missing frontmatter tag: %+v", daily.Tags)
+	}
+	if !stringSliceContains(daily.OutgoingWikiLinks, "Target") || !stringSliceContains(daily.OutgoingWikiLinks, "Missing") {
+		t.Fatalf("daily outgoing wikilinks missing: %+v", daily.OutgoingWikiLinks)
+	}
+	if _, ok := idx.Tags["daily"]; !ok {
+		t.Fatalf("tag index missing daily: %+v", idx.Tags)
+	}
+}
+
+func stringSliceContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBacklinksAndSearch(t *testing.T) {
 	v := makeVault(t)
 	backs := v.BacklinksTo("Areas/Target.md")
