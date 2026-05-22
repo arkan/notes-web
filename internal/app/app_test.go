@@ -328,6 +328,47 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 	}
 }
 
+func TestNoteBreadcrumbSegmentsAreClickableAndShareReadingWidth(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<nav class="crumb reading-surface" aria-label="Breadcrumb">`,
+		`<a href="/">Home</a>`,
+		`<a href="/Areas">Areas</a>`,
+		`<a href="/Areas/Daily%20Briefings">Daily Briefings</a>`,
+		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md" aria-current="page">2026-05-22-briefing.md</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing clickable breadcrumb markup %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `Home</a> / Areas/Daily Briefings/2026-05-22-briefing.md`) {
+		t.Fatalf("breadcrumb should not render raw non-clickable path in:\n%s", body)
+	}
+}
+
+func TestReadingMeasureUsesMoreAvailablePageWidth(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`--measure:1180px`,
+		`.crumb.reading-surface`,
+		`.reading-surface{max-width:var(--measure)`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing wider aligned reading CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
 func TestSearchPageShowsQuerySyntaxHelp(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
@@ -761,7 +802,7 @@ func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T)
 	s.ServeHTTP(w, r)
 	css := w.Body.String()
 	for _, want := range []string{
-		"--measure:78ch",
+		"--measure:1180px",
 		".content{font-size:17px;line-height:1.72;overflow-wrap:anywhere}",
 		".content>:where(p,ul,ol,blockquote,details,dl){max-width:var(--measure)}",
 		".content>:where(pre,table,.mermaid,img){max-width:100%}",

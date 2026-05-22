@@ -851,6 +851,25 @@ func highlightSearchSnippet(snippet string, terms []string) string {
 	return escaped
 }
 
+type Breadcrumb struct {
+	Label   string
+	URL     string
+	Current bool
+}
+
+func breadcrumbsForRel(v *Vault, rel string) []Breadcrumb {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	crumbs := []Breadcrumb{{Label: "Home", URL: "/"}}
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		partial := strings.Join(parts[:i+1], "/")
+		crumbs = append(crumbs, Breadcrumb{Label: part, URL: v.URLForRel(partial), Current: i == len(parts)-1})
+	}
+	return crumbs
+}
+
 type Server struct {
 	vault      *Vault
 	renderer   *Renderer
@@ -1183,6 +1202,7 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		c := s.commonForActive(doc.Title, n.RelPath)
 		c["Note"] = n
 		c["Doc"] = doc
+		c["Breadcrumbs"] = breadcrumbsForRel(s.vault, n.RelPath)
 		c["ForwardLinks"] = s.vault.ForwardLinksFrom(n)
 		c["Backlinks"] = s.vault.BacklinksWithContext(n.RelPath)
 		s.render(w, "note", c)
