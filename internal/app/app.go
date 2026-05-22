@@ -867,7 +867,8 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		c := s.commonForActive(doc.Title, n.RelPath)
 		c["Note"] = n
 		c["Doc"] = doc
-		c["Backlinks"] = s.vault.BacklinksTo(n.RelPath)
+		c["ForwardLinks"] = s.vault.ForwardLinksFrom(n)
+		c["Backlinks"] = s.vault.BacklinksWithContext(n.RelPath)
 		s.render(w, "note", c)
 		return
 	}

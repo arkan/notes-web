@@ -379,6 +379,56 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	}
 }
 
+func TestNoteLinksShowForwardLinksAndBacklinkContext(t *testing.T) {
+	v := makeVault(t)
+	outgoing := v.ForwardLinksFrom(Note{RelPath: "Areas/Daily Briefings/2026-05-22-briefing.md", Body: "See [[Target|alias]] and [[Missing]]."})
+	if len(outgoing) != 2 || outgoing[0].Target != "Target" || outgoing[0].Kind != "unique" || outgoing[1].Kind != "missing" {
+		t.Fatalf("unexpected outgoing links: %+v", outgoing)
+	}
+	backlinks := v.BacklinksWithContext("Areas/Target.md")
+	foundLinkerContext := false
+	for _, backlink := range backlinks {
+		if backlink.Source.RelPath == "Areas/Linker.md" && strings.Contains(backlink.Context, "See [[Target]]") {
+			foundLinkerContext = true
+		}
+	}
+	if !foundLinkerContext {
+		t.Fatalf("expected Linker backlink context in: %+v", backlinks)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<h2>Forward links</h2>`,
+		`No forward links.`,
+		`<h2>Backlinks</h2>`,
+		`Areas/Linker.md`,
+		`See [[Target]]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing link markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{
+		`<h2>Forward links</h2>`,
+		`href="/Areas/Target.md"`,
+		`class="missing-link"`,
+		`Missing`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing forward link markup %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
