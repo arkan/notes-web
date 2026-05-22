@@ -374,6 +374,7 @@ func (r *Renderer) Render(n Note) RenderedDoc {
 }
 
 func normalizeRenderedHTML(s string) string {
+	s = decorateCalloutsHTML(s)
 	s = strings.ReplaceAll(s, `<input checked="" disabled="" type="checkbox">`, `<input type="checkbox" checked disabled>`)
 	s = strings.ReplaceAll(s, `<input disabled="" type="checkbox">`, `<input type="checkbox" disabled>`)
 	s = decorateTaskLists(s)
@@ -428,8 +429,105 @@ func (r *Renderer) preprocess(s string) string {
 }
 
 func preprocessCallouts(s string) string {
-	re := regexp.MustCompile(`(?m)^> \[!(\w+)\]\s*(.*)$`)
-	return re.ReplaceAllString(s, `<div class="callout $1"><div class="callout-title">$2</div>`)
+	return s
+}
+
+func decorateCalloutsHTML(s string) string {
+	re := regexp.MustCompile(`(?s)<blockquote>\s*<p>\[!(\w+)\]([+-]?)\s*([^\n<]*)\n(.*?)</p>\s*</blockquote>`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		parts := re.FindStringSubmatch(match)
+		if len(parts) != 5 {
+			return match
+		}
+		kind := strings.ToLower(parts[1])
+		fold := parts[2]
+		title := strings.TrimSpace(parts[3])
+		body := strings.TrimSpace(parts[4])
+		if title == "" {
+			title = defaultCalloutTitle(kind)
+		}
+		classes := "callout " + html.EscapeString(kind) + " callout-" + html.EscapeString(kind)
+		if fold == "-" {
+			classes += " is-collapsed"
+		}
+		var b strings.Builder
+		b.WriteString(`<div class="` + classes + `" data-callout="` + html.EscapeString(kind) + `">`)
+		b.WriteString(`<div class="callout-title"><span class="callout-icon" aria-hidden="true">` + calloutIcon(kind) + `</span><span class="callout-title-text">` + html.EscapeString(title) + `</span></div>`)
+		if body != "" {
+			b.WriteString(`<div class="callout-body"><p>` + body + `</p></div>`)
+		}
+		b.WriteString(`</div>`)
+		return b.String()
+	})
+}
+
+func defaultCalloutTitle(kind string) string {
+	switch strings.ToLower(kind) {
+	case "note":
+		return "Note"
+	case "abstract", "summary", "tldr":
+		return "Summary"
+	case "info":
+		return "Info"
+	case "todo":
+		return "Todo"
+	case "tip", "hint", "important":
+		return "Tip"
+	case "success", "check", "done":
+		return "Success"
+	case "question", "help", "faq":
+		return "Question"
+	case "warning", "caution", "attention":
+		return "Warning"
+	case "failure", "fail", "missing":
+		return "Failure"
+	case "danger", "error":
+		return "Danger"
+	case "bug":
+		return "Bug"
+	case "example":
+		return "Example"
+	case "quote", "cite":
+		return "Quote"
+	default:
+		if kind == "" {
+			return "Note"
+		}
+		return strings.ToUpper(kind[:1]) + kind[1:]
+	}
+}
+
+func calloutIcon(kind string) string {
+	switch strings.ToLower(kind) {
+	case "note":
+		return "📝"
+	case "abstract", "summary", "tldr":
+		return "📌"
+	case "info":
+		return "ℹ️"
+	case "todo":
+		return "☑️"
+	case "tip", "hint", "important":
+		return "💡"
+	case "success", "check", "done":
+		return "✅"
+	case "question", "help", "faq":
+		return "❓"
+	case "warning", "caution", "attention":
+		return "⚠️"
+	case "failure", "fail", "missing":
+		return "✖️"
+	case "danger", "error":
+		return "🚨"
+	case "bug":
+		return "🐞"
+	case "example":
+		return "📎"
+	case "quote", "cite":
+		return "❝"
+	default:
+		return "📝"
+	}
 }
 
 func preprocessMermaid(s string) string {

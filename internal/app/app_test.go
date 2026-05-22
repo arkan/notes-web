@@ -70,9 +70,45 @@ func TestMarkdownRenderingFeatures(t *testing.T) {
 	}
 	r := NewRenderer(v)
 	doc := r.Render(note)
-	for _, want := range []string{"Daily Briefing", "frontmatter", "<table>", "type=\"checkbox\" checked", "class=\"callout note\"", "class=\"mermaid\"", "/Areas/Target.md", "/_missing?name=Missing"} {
+	for _, want := range []string{"Daily Briefing", "frontmatter", "<table>", "type=\"checkbox\" checked", "class=\"callout note callout-note\"", "class=\"mermaid\"", "/Areas/Target.md", "/_missing?name=Missing"} {
 		if !strings.Contains(doc.HTML, want) {
 			t.Fatalf("missing %q in html:\n%s", want, doc.HTML)
+		}
+	}
+}
+
+func TestCalloutsRenderWithTypesIconsTitlesAndClosedMarkup(t *testing.T) {
+	v := makeVault(t)
+	note := Note{RelPath: "Areas/Callouts.md", Body: "> [!warning] Check this\n> Important body\n\n> [!tip]\n> Useful body\n"}
+	doc := NewRenderer(v).Render(note)
+	for _, want := range []string{
+		`<div class="callout warning callout-warning" data-callout="warning">`,
+		`<span class="callout-icon" aria-hidden="true">⚠️</span>`,
+		`<span class="callout-title-text">Check this</span>`,
+		`<div class="callout-body"><p>Important body</p></div>`,
+		`<div class="callout tip callout-tip" data-callout="tip">`,
+		`<span class="callout-icon" aria-hidden="true">💡</span>`,
+		`<span class="callout-title-text">Tip</span>`,
+		`</div>`,
+	} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("missing callout HTML %q in:\n%s", want, doc.HTML)
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".callout-warning",
+		".callout-tip",
+		".callout-icon",
+		".callout-body",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing callout CSS %q in:\n%s", want, css)
 		}
 	}
 }
