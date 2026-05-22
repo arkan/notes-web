@@ -306,8 +306,7 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`<article class="note reading-surface">`,
-		`class="sidebar-footer"`,
-		`data-settings-open`,
+		`class="settings-button btn ghost icon-btn" data-settings-open aria-haspopup="dialog" aria-label="Settings"`,
 		`class="settings-modal"`,
 		`data-settings-modal hidden`,
 		`data-theme-select`,
@@ -337,7 +336,8 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 	for _, want := range []string{
 		`.reading-surface{max-width:none`,
 		`.frontmatter{width:100%;max-width:none`,
-		`.sidebar-footer{position:sticky;bottom:0`,
+		`.side-header{display:flex;align-items:flex-start;justify-content:space-between`,
+		`.settings-button{inline-size:52px;block-size:52px;padding:0`,
 		`.settings-modal[hidden]{display:none}`,
 		`.settings-dialog`,
 		`body.reading-focus .side`,
@@ -1298,12 +1298,15 @@ func TestSidebarPaletteAndNoFlashContracts(t *testing.T) {
 		`document.documentElement.dataset.readingFocus`,
 		`data-palette-open aria-label="Open command palette">⌘K</button>`,
 		`<dt>⌘/Ctrl B</dt><dd>Toggle sidebar</dd>`,
+		`<a class="nav" href="/_search"><span class="nav-icon nav-icon-search">⌕</span>Search</a>`,
+		`<div class="side-header"><div><a class="brand" href="/">Notes Web</a><span class="side-subtitle">Personal knowledge base</span></div><button class="settings-button btn ghost icon-btn" data-settings-open aria-haspopup="dialog" aria-label="Settings"><span aria-hidden="true">⚙</span></button></div>`,
+		`<span class="nav-icon nav-icon-favorite">★</span>Daily Briefings`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing no-flash/sidebar markup %q in:\n%s", want, body)
 		}
 	}
-	for _, unwanted := range []string{`class="search sidebar-search"`, `<dt>⌘/Ctrl F</dt><dd>Toggle reading focus</dd>`} {
+	for _, unwanted := range []string{`class="search sidebar-search"`, `<dt>⌘/Ctrl F</dt><dd>Toggle reading focus</dd>`, `class="sidebar-footer"`, `<span>Settings</span>`} {
 		if strings.Contains(body, unwanted) {
 			t.Fatalf("layout should not contain obsolete sidebar/search markup %q:\n%s", unwanted, body)
 		}
@@ -1334,6 +1337,10 @@ func TestSidebarPaletteAndNoFlashContracts(t *testing.T) {
 		"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
 		".palette-button{position:fixed;right:18px;bottom:18px",
 		".side{position:sticky;top:0;height:100vh;overflow:auto",
+		".nav-icon{width:32px;font-size:24px",
+		".nav-icon-search{font-size:29px",
+		".nav-icon-favorite{font-size:21px",
+		".settings-button{inline-size:52px;block-size:52px;padding:0;border-radius:999px;flex:0 0 auto;font-size:28px",
 		":root[data-reading-focus=\"true\"] .side{display:none}",
 		":root[data-reading-focus=\"true\"] .shell{grid-template-columns:minmax(0,1fr)}",
 	} {
