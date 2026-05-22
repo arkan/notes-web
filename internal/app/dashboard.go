@@ -46,6 +46,37 @@ func (v *Vault) BuildDashboard() (Dashboard, error) {
 	return d, nil
 }
 
+type TaskBoard struct {
+	Overdue  []TaskItem
+	Today    []TaskItem
+	Upcoming []TaskItem
+	NoDate   []TaskItem
+	Done     []TaskItem
+}
+
+func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
+	tasks, err := v.AllTasks()
+	if err != nil {
+		return TaskBoard{}, err
+	}
+	board := TaskBoard{}
+	for _, task := range tasks {
+		switch {
+		case task.Completed:
+			board.Done = append(board.Done, task)
+		case task.Due == "":
+			board.NoDate = append(board.NoDate, task)
+		case task.Due < today:
+			board.Overdue = append(board.Overdue, task)
+		case task.Due == today:
+			board.Today = append(board.Today, task)
+		default:
+			board.Upcoming = append(board.Upcoming, task)
+		}
+	}
+	return board, nil
+}
+
 func (v *Vault) AllTasks() ([]TaskItem, error) {
 	var tasks []TaskItem
 	for _, p := range v.MarkdownFiles() {

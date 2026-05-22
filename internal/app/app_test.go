@@ -320,6 +320,65 @@ func TestDashboardSummarizesDailyTodosAndLinkHealth(t *testing.T) {
 	}
 }
 
+func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
+	v := makeVault(t)
+	path := filepath.Join(v.Root, "Areas", "TODO.md")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("- [ ] Pay invoice 📅 2026-05-20 <!-- tid:today123 -->\n- [ ] Plan trip 📅 2026-06-01 <!-- tid:future123 -->\n- [ ] Read later <!-- tid:nodate123 -->\n")
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	board, err := v.BuildTaskBoard("2026-05-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Overdue) != 1 || board.Overdue[0].ID != "1c496356" {
+		t.Fatalf("unexpected overdue tasks: %+v", board.Overdue)
+	}
+	if len(board.Today) != 1 || board.Today[0].ID != "today123" {
+		t.Fatalf("unexpected today tasks: %+v", board.Today)
+	}
+	if len(board.Upcoming) != 1 || board.Upcoming[0].ID != "future123" {
+		t.Fatalf("unexpected upcoming tasks: %+v", board.Upcoming)
+	}
+	if len(board.NoDate) != 1 || board.NoDate[0].ID != "nodate123" {
+		t.Fatalf("unexpected no-date tasks: %+v", board.NoDate)
+	}
+	if len(board.Done) != 1 || board.Done[0].ID != "149d256b" {
+		t.Fatalf("unexpected done tasks: %+v", board.Done)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_todo?today=2026-05-20", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<h1>TODOs</h1>`,
+		`<h2>Overdue</h2>`,
+		`Change Captur tires`,
+		`<h2>Today</h2>`,
+		`Pay invoice`,
+		`<h2>Upcoming</h2>`,
+		`Plan trip`,
+		`<h2>No due date</h2>`,
+		`Read later`,
+		`<h2>Done</h2>`,
+		`Buy dog food`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing TODO view markup %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")

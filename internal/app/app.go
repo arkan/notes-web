@@ -687,6 +687,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.missing(w, r)
 	case "/_tags":
 		s.tags(w, r)
+	case "/_todo":
+		s.todo(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/_tags/") {
 			s.tag(w, r)
@@ -789,6 +791,19 @@ func (s *Server) paletteAPI(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(items)
+}
+
+func (s *Server) todo(w http.ResponseWriter, r *http.Request) {
+	today := r.URL.Query().Get("today")
+	if today == "" {
+		today = time.Now().Format("2006-01-02")
+	}
+	board, err := s.vault.BuildTaskBoard(today)
+	c := s.common("TODOs")
+	c["Err"] = err
+	c["Today"] = today
+	c["Board"] = board
+	s.render(w, "todo", c)
 }
 
 func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
