@@ -364,7 +364,7 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 		`<a href="/Areas">Areas</a>`,
 		`<a href="/Areas/Daily%20Briefings" aria-current="page">Daily Briefings</a>`,
 		`<article class="folder-view reading-surface">`,
-		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1><small>Areas/Daily Briefings</small></div><div class="note-actions"><button class="copy-link btn ghost" data-copy-link>Copy link</button></div></header>`,
+		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions"><button class="copy-link btn ghost" data-copy-link>Copy link</button></div></header>`,
 		`<ul class="list folder-list">`,
 		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md">📄 2026-05-22-briefing.md</a>`,
 	} {
@@ -374,6 +374,9 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 	}
 	if strings.Contains(body, `<div class="page-header"><h1>📁 Areas/Daily Briefings</h1>`) {
 		t.Fatalf("folder view should not use the old full-width page-header layout:\n%s", body)
+	}
+	if strings.Contains(body, `<small>Areas/Daily Briefings</small>`) {
+		t.Fatalf("folder header should not repeat the breadcrumb path:\n%s", body)
 	}
 
 	w = httptest.NewRecorder()
