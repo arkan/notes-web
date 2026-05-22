@@ -140,6 +140,45 @@ func TestVaultIndexBuildsTypedMetadata(t *testing.T) {
 	}
 }
 
+func TestNumericTagsAreFilteredExceptYearsFrom1900To2100(t *testing.T) {
+	v := makeVault(t)
+	p := filepath.Join(v.Root, "Areas", "Numeric Tags.md")
+	if err := os.WriteFile(p, []byte("---\ntitle: Numeric Tags\ntags: [123, 1899, 1900, 2026, 2100, 2101, project]\n---\n# Numeric Tags\n\nInline tags: #456 #1899 #1900 #2026 #2100 #2101 #topic/123 #abc123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"1900", "2026", "2100", "project", "topic/123", "abc123"} {
+		if _, ok := idx.Tags[want]; !ok {
+			t.Fatalf("expected tag %q in index tags: %+v", want, idx.Tags)
+		}
+	}
+	for _, unwanted := range []string{"123", "456", "1899", "2101"} {
+		if _, ok := idx.Tags[unwanted]; ok {
+			t.Fatalf("numeric non-year tag %q should be filtered from index tags: %+v", unwanted, idx.Tags)
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_tags", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{`href="/_tags/1900"`, `href="/_tags/2026"`, `href="/_tags/2100"`, `href="/_tags/project"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected allowed tag link %q in tags page:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`href="/_tags/123"`, `href="/_tags/456"`, `href="/_tags/1899"`, `href="/_tags/2101"`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("unexpected numeric non-year tag link %q in tags page:\n%s", unwanted, body)
+		}
+	}
+}
+
 func stringSliceContains(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

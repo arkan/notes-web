@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,7 +69,7 @@ func extractTags(note Note) []string {
 	var tags []string
 	add := func(raw string) {
 		tag := normalizeTag(raw)
-		if tag == "" || seen[tag] {
+		if tag == "" || !isDisplayTag(tag) || seen[tag] {
 			return
 		}
 		seen[tag] = true
@@ -110,6 +111,19 @@ func normalizeTag(raw string) string {
 	tag := strings.Trim(strings.TrimSpace(raw), "#[]\"'")
 	tag = strings.TrimSuffix(tag, ",")
 	return strings.ToLower(tag)
+}
+
+func isDisplayTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	for _, r := range tag {
+		if r < '0' || r > '9' {
+			return true
+		}
+	}
+	year, err := strconv.Atoi(tag)
+	return err == nil && year >= 1900 && year <= 2100
 }
 
 var wikiLinkTargetRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
