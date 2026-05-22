@@ -167,3 +167,55 @@ func TestMainContainerUsesAvailableWidthWithoutHorizontalPageOverflow(t *testing
 		}
 	}
 }
+
+func TestMobileSidebarOverlayBehavior(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<button class="mobile-menu" data-sidebar-toggle aria-label="Open sidebar" aria-expanded="false">☰</button>`,
+		`<div class="sidebar-backdrop" data-sidebar-close></div>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing mobile sidebar markup %q", want)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".mobile-menu{display:none}",
+		"@media(max-width:850px){.shell{display:block}",
+		".mobile-menu{display:inline-flex",
+		".side{position:fixed;left:0;top:0;width:min(86vw,340px);max-width:340px;transform:translateX(-100%);z-index:30;height:100vh;",
+		"body.sidebar-open .side{transform:translateX(0)}",
+		"body.sidebar-open .sidebar-backdrop{display:block}",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing mobile sidebar CSS %q in:\n%s", want, css)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function openSidebar()",
+		"function closeSidebar()",
+		"data-sidebar-toggle",
+		"data-sidebar-close",
+		"side?.addEventListener('click'",
+		"target.closest('a')",
+		"closeSidebar();",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing mobile sidebar JS %q in:\n%s", want, js)
+		}
+	}
+}
