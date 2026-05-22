@@ -257,7 +257,7 @@ func searchResultsContainRel(results []SearchResult, rel string) bool {
 	return false
 }
 
-func TestReadingComfortControlsAndLayout(t *testing.T) {
+func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
 
@@ -266,13 +266,28 @@ func TestReadingComfortControlsAndLayout(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`data-focus-toggle`,
-		`data-font-size-select`,
-		`aria-label="Toggle reading focus"`,
 		`<article class="note reading-surface">`,
+		`class="sidebar-footer"`,
+		`data-settings-open`,
+		`class="settings-modal"`,
+		`data-settings-modal hidden`,
+		`data-theme-select`,
+		`data-font-size-select`,
+		`Keyboard shortcuts`,
+		`⌘/Ctrl F`,
+		`Toggle reading focus`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("missing reading control markup %q in:\n%s", want, body)
+			t.Fatalf("missing settings/modal markup %q in:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{
+		`data-focus-toggle`,
+		`class="reading-controls"`,
+		`<label class="theme-picker">Theme`,
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("old inline reading/sidebar control should be removed %q in:\n%s", unwanted, body)
 		}
 	}
 
@@ -282,13 +297,15 @@ func TestReadingComfortControlsAndLayout(t *testing.T) {
 	css := w.Body.String()
 	for _, want := range []string{
 		`.reading-surface{max-width:var(--measure)`,
-		`.note .content table`,
-		`width:min(100%,var(--measure))`,
+		`.frontmatter{width:min(100%,var(--measure))`,
+		`.sidebar-footer{position:sticky;bottom:0`,
+		`.settings-modal[hidden]{display:none}`,
+		`.settings-dialog`,
 		`body.reading-focus .side`,
 		`[data-font-size="large"]`,
 	} {
 		if !strings.Contains(css, want) {
-			t.Fatalf("missing reading comfort CSS %q in:\n%s", want, css)
+			t.Fatalf("missing settings/reading CSS %q in:\n%s", want, css)
 		}
 	}
 
@@ -299,12 +316,14 @@ func TestReadingComfortControlsAndLayout(t *testing.T) {
 	for _, want := range []string{
 		`notes-web:font-size`,
 		`notes-web:reading-focus`,
-		`initReadingControls`,
-		`data-font-size-select`,
-		`data-focus-toggle`,
+		`initSettingsModal`,
+		`data-settings-open`,
+		`data-settings-close`,
+		`toggleReadingFocus()`,
+		`ev.key.toLowerCase() === 'f'`,
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("missing reading comfort JS %q in:\n%s", want, js)
+			t.Fatalf("missing settings/focus JS %q in:\n%s", want, js)
 		}
 	}
 }
@@ -352,8 +371,8 @@ func TestTaskMetadataRendersAsReadableBadges(t *testing.T) {
 	}
 	doc := NewRenderer(v).Render(note)
 	for _, want := range []string{
-		`<span class="task-meta due-date" title="Due date">📅 2026-05-19</span>`,
-		`<span class="task-meta done-date" title="Done date">✅ 2026-05-20</span>`,
+		`<span class="task-meta due-date" title="Due date">Due 2026-05-19</span>`,
+		`<span class="task-meta done-date" title="Done date">Done 2026-05-20</span>`,
 	} {
 		if !strings.Contains(doc.HTML, want) {
 			t.Fatalf("missing task metadata badge %q in TODO HTML:\n%s", want, doc.HTML)
@@ -864,7 +883,7 @@ func TestThemeControlsSupportLightDarkSepiaAndAuto(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<label class="theme-picker">Theme`,
+		`<section class="settings-section">`,
 		`<select data-theme-select aria-label="Theme">`,
 		`<option value="auto">Auto</option>`,
 		`<option value="light">Light</option>`,
@@ -884,7 +903,7 @@ func TestThemeControlsSupportLightDarkSepiaAndAuto(t *testing.T) {
 		"[data-theme=dark]",
 		"[data-theme=sepia]",
 		"@media(prefers-color-scheme:dark)",
-		".theme-picker{display:flex",
+		".setting-row{display:grid",
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("missing theme CSS %q in:\n%s", want, css)
@@ -993,13 +1012,15 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`class="todo-group overdue"`,
+		`class="todo-board"`,
+		`class="todo-column overdue"`,
 		`Overdue <span class="count">1</span>`,
-		`class="task-row"`,
+		`class="task-card"`,
+		`class="task-checkbox"`,
 		`class="task-date overdue-date"`,
 		`title="Copy task ID"`,
 		`class="task-id"`,
-		`<details class="todo-group done"`,
+		`<details class="todo-column done"`,
 		`<summary><h2>Done <span class="count">1</span></h2></summary>`,
 	} {
 		if !strings.Contains(body, want) {

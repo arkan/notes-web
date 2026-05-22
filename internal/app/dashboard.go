@@ -146,6 +146,8 @@ var (
 	tidRe      = regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
 	dueRe      = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
 	doneRe     = regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
+	recurRe    = regexp.MustCompile(`🔁\s*`)
+	priorityRe = regexp.MustCompile(`[⏫🔼🔽⏬]`)
 )
 
 func parseTaskLine(line string) (TaskItem, bool) {
@@ -171,6 +173,8 @@ func cleanTaskText(s string) string {
 	s = tidRe.ReplaceAllString(s, "")
 	s = dueRe.ReplaceAllString(s, "")
 	s = doneRe.ReplaceAllString(s, "")
+	s = recurRe.ReplaceAllString(s, "")
+	s = priorityRe.ReplaceAllString(s, "")
 	return strings.Join(strings.Fields(s), " ")
 }
 

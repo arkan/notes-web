@@ -441,9 +441,14 @@ func decorateTaskLists(s string) string {
 
 func decorateTaskMetadata(s string) string {
 	dueRe := regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
-	s = dueRe.ReplaceAllString(s, `<span class="task-meta due-date" title="Due date">📅 $1</span>`)
+	s = dueRe.ReplaceAllString(s, `<span class="task-meta due-date" title="Due date">Due $1</span>`)
 	doneRe := regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
-	s = doneRe.ReplaceAllString(s, `<span class="task-meta done-date" title="Done date">✅ $1</span>`)
+	s = doneRe.ReplaceAllString(s, `<span class="task-meta done-date" title="Done date">Done $1</span>`)
+	recurRe := regexp.MustCompile(`🔁\s*([^<
+]+)`)
+	s = recurRe.ReplaceAllString(s, `<span class="task-meta repeat-meta" title="Repeats">Repeats $1</span>`)
+	priorityRe := regexp.MustCompile(`[⏫🔼🔽⏬]`)
+	s = priorityRe.ReplaceAllString(s, `<span class="task-meta priority-meta" title="Priority">Priority</span>`)
 	return s
 }
 
