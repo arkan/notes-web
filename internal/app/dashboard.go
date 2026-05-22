@@ -1,17 +1,78 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Dashboard struct {
 	LatestDaily     *Note
+	TodayLabel      string
+	SelectedDate    string
+	ActiveProjects  []ActiveProject
+	RecentNotes     []NoteMeta
+	Calendar        MonthCalendar
+	SelectedDay     SelectedDaySummary
 	OpenTasks       []TaskItem
 	BrokenLinkCount int
 	OrphanNoteCount int
+}
+
+type ActiveProject struct {
+	Label       string
+	Description string
+	RelPath     string
+	URL         string
+	LatestTitle string
+	LatestURL   string
+	LatestRel   string
+	Updated     string
+	NoteCount   int
+	ModTime     time.Time
+}
+
+type MonthCalendar struct {
+	MonthLabel string
+	PrevURL    string
+	NextURL    string
+	Weeks      [][]CalendarDay
+}
+
+type CalendarDay struct {
+	Label    string
+	Date     string
+	URL      string
+	InMonth  bool
+	HasNote  bool
+	Selected bool
+	Today    bool
+}
+
+func (d CalendarDay) Class() string {
+	classes := []string{"calendar-day"}
+	if !d.InMonth {
+		classes = append(classes, "outside-month")
+	}
+	if d.HasNote {
+		classes = append(classes, "has-note")
+	}
+	if d.Selected {
+		classes = append(classes, "selected")
+	}
+	if d.Today {
+		classes = append(classes, "today")
+	}
+	return strings.Join(classes, " ")
+}
+
+type SelectedDaySummary struct {
+	Label string
+	Date  string
+	Notes []NoteMeta
 }
 
 type TaskItem struct {
@@ -47,6 +108,10 @@ func (t TaskItem) StatusLabel() string {
 }
 
 func (v *Vault) BuildDashboard() (Dashboard, error) {
+	return v.BuildDashboardFor(time.Time{})
+}
+
+func (v *Vault) BuildDashboardFor(selectedOverride time.Time) (Dashboard, error) {
 	idx, err := v.BuildIndex()
 	if err != nil {
 		return Dashboard{}, err
@@ -56,7 +121,22 @@ func (v *Vault) BuildDashboard() (Dashboard, error) {
 		return Dashboard{}, err
 	}
 	resolver := NewIndexResolver(idx)
-	d := Dashboard{LatestDaily: v.LatestDaily(), BrokenLinkCount: CountBrokenWikiLinks(idx, resolver), OrphanNoteCount: CountOrphanNotes(idx, resolver)}
+	latestDaily := v.LatestDaily()
+	selected := selectedOverride
+	if selected.IsZero() {
+		selected = selectedDashboardDate(latestDaily)
+	}
+	d := Dashboard{
+		LatestDaily:     latestDaily,
+		SelectedDate:    selected.Format("2006-01-02"),
+		TodayLabel:      selected.Format("Monday, January 2"),
+		ActiveProjects:  v.ActiveProjects(idx, 6),
+		RecentNotes:     recentNoteMetas(idx, 5),
+		Calendar:        v.MonthCalendar(idx, selected),
+		SelectedDay:     selectedDaySummary(idx, selected),
+		BrokenLinkCount: CountBrokenWikiLinks(idx, resolver),
+		OrphanNoteCount: CountOrphanNotes(idx, resolver),
+	}
 	for _, task := range tasks {
 		if !task.Completed {
 			d.OpenTasks = append(d.OpenTasks, task)
@@ -66,6 +146,170 @@ func (v *Vault) BuildDashboard() (Dashboard, error) {
 		d.OpenTasks = d.OpenTasks[:8]
 	}
 	return d, nil
+}
+
+func selectedDashboardDate(latestDaily *Note) time.Time {
+	if latestDaily != nil {
+		if d, ok := dateFromRel(latestDaily.RelPath); ok {
+			return d
+		}
+		if !latestDaily.ModTime.IsZero() {
+			return latestDaily.ModTime
+		}
+	}
+	return time.Now()
+}
+
+func recentNoteMetas(idx *VaultIndex, limit int) []NoteMeta {
+	if idx == nil {
+		return nil
+	}
+	notes := append([]NoteMeta(nil), idx.Notes...)
+	sort.SliceStable(notes, func(i, j int) bool { return notes[i].ModTime.After(notes[j].ModTime) })
+	if len(notes) > limit {
+		notes = notes[:limit]
+	}
+	return notes
+}
+
+func (v *Vault) ActiveProjects(idx *VaultIndex, limit int) []ActiveProject {
+	if idx == nil {
+		return nil
+	}
+	projects := map[string]*ActiveProject{}
+	for _, note := range idx.Notes {
+		label, rel := projectForRel(note.RelPath)
+		if label == "Daily Briefings" || label == "Daily Notes" || label == "Areas" {
+			continue
+		}
+		project := projects[rel]
+		if project == nil {
+			project = &ActiveProject{Label: label, RelPath: rel, URL: v.URLForRel(rel), Description: projectDescription(label, rel)}
+			projects[rel] = project
+		}
+		project.NoteCount++
+		if note.ModTime.After(project.ModTime) || project.LatestRel == "" {
+			project.ModTime = note.ModTime
+			project.LatestTitle = note.Title
+			project.LatestURL = note.URL
+			project.LatestRel = note.RelPath
+			project.Updated = humanDate(note.ModTime)
+		}
+	}
+	out := make([]ActiveProject, 0, len(projects))
+	for _, project := range projects {
+		out = append(out, *project)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].ModTime.Equal(out[j].ModTime) {
+			return out[i].ModTime.After(out[j].ModTime)
+		}
+		return out[i].Label < out[j].Label
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func projectForRel(rel string) (string, string) {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) >= 3 && parts[0] == "Areas" {
+		return parts[1], strings.Join(parts[:2], "/")
+	}
+	if len(parts) >= 2 {
+		return parts[0], parts[0]
+	}
+	stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+	return stem, rel
+}
+
+func projectDescription(label, rel string) string {
+	if rel == "" || rel == label {
+		return label
+	}
+	return rel
+}
+
+func humanDate(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	return t.Format("Jan 2")
+}
+
+func (v *Vault) MonthCalendar(idx *VaultIndex, selected time.Time) MonthCalendar {
+	selected = selected.In(time.Local)
+	first := time.Date(selected.Year(), selected.Month(), 1, 0, 0, 0, 0, selected.Location())
+	start := first.AddDate(0, 0, -int((int(first.Weekday())+6)%7))
+	hasDaily := map[string]bool{}
+	if idx != nil {
+		cfg := v.LoadConfig()
+		for _, note := range idx.Notes {
+			ok, _ := filepath.Match(filepath.ToSlash(cfg.DailyGlob), note.RelPath)
+			if !ok {
+				continue
+			}
+			if d, ok := dateFromRel(note.RelPath); ok {
+				hasDaily[d.Format("2006-01-02")] = true
+			}
+		}
+	}
+	cal := MonthCalendar{
+		MonthLabel: first.Format("January 2006"),
+		PrevURL:    "/?month=" + first.AddDate(0, -1, 0).Format("2006-01"),
+		NextURL:    "/?month=" + first.AddDate(0, 1, 0).Format("2006-01"),
+	}
+	for week := 0; week < 6; week++ {
+		var days []CalendarDay
+		for dow := 0; dow < 7; dow++ {
+			day := start.AddDate(0, 0, week*7+dow)
+			date := day.Format("2006-01-02")
+			days = append(days, CalendarDay{
+				Label:    fmt.Sprint(day.Day()),
+				Date:     date,
+				URL:      "/?date=" + date,
+				InMonth:  day.Month() == selected.Month(),
+				HasNote:  hasDaily[date],
+				Selected: sameDate(day, selected),
+				Today:    sameDate(day, selected),
+			})
+		}
+		cal.Weeks = append(cal.Weeks, days)
+	}
+	return cal
+}
+
+func selectedDaySummary(idx *VaultIndex, selected time.Time) SelectedDaySummary {
+	date := selected.Format("2006-01-02")
+	summary := SelectedDaySummary{Date: date, Label: selected.Format("Jan 2")}
+	if idx == nil {
+		return summary
+	}
+	for _, note := range idx.Notes {
+		if strings.Contains(note.RelPath, date) {
+			summary.Notes = append(summary.Notes, note)
+		}
+	}
+	sort.SliceStable(summary.Notes, func(i, j int) bool { return summary.Notes[i].Title < summary.Notes[j].Title })
+	return summary
+}
+
+var relDateRe = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`)
+
+func dateFromRel(rel string) (time.Time, bool) {
+	m := relDateRe.FindStringSubmatch(rel)
+	if len(m) == 0 {
+		return time.Time{}, false
+	}
+	d, err := time.Parse("2006-01-02", m[0])
+	return d, err == nil
+}
+
+func sameDate(a, b time.Time) bool {
+	y1, m1, d1 := a.Date()
+	y2, m2, d2 := b.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 type TaskBoard struct {

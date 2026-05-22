@@ -948,7 +948,17 @@ func (s *Server) commonForActive(title, activeRel string) map[string]any {
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	c := s.common("Home")
-	dashboard, err := s.vault.BuildDashboard()
+	var selected time.Time
+	if raw := r.URL.Query().Get("date"); raw != "" {
+		if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+			selected = parsed
+		}
+	} else if raw := r.URL.Query().Get("month"); raw != "" {
+		if parsed, err := time.Parse("2006-01", raw); err == nil {
+			selected = parsed
+		}
+	}
+	dashboard, err := s.vault.BuildDashboardFor(selected)
 	c["Dashboard"] = dashboard
 	c["Err"] = err
 	c["Latest"] = dashboard.LatestDaily

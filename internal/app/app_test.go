@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func makeVault(t *testing.T) *Vault {
@@ -247,6 +248,162 @@ func stringSliceContains(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestHomeDashboardUsesCalendarActiveProjectsAndRecentNotes(t *testing.T) {
+	v := makeVault(t)
+	old, err := time.Parse(time.RFC3339, "2026-05-01T08:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range v.MarkdownFiles() {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeNote := func(rel, body string, mod string) {
+		t.Helper()
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mt, err := time.Parse(time.RFC3339, mod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeNote("Areas/Daily Briefings/2026-05-22-briefing.md", "---\ntitle: Daily Briefing\ntags: [daily]\n---\n# Heading One\n", "2026-05-22T16:00:00Z")
+	writeNote("Areas/France-Publications/Hub2.md", "# Hub2\n", "2026-05-22T15:00:00Z")
+	writeNote("Areas/Notes-web/Homepage.md", "# Homepage\n", "2026-05-22T14:00:00Z")
+	writeNote("Areas/Amsterdam/Move.md", "# Move\n", "2026-05-20T12:00:00Z")
+	writeNote("Areas/Santé/2026-05-21.md", "# Santé\n", "2026-05-21T09:00:00Z")
+	writeNote("Areas/Daily Briefings/2026-05-21-briefing.md", "# Older Briefing\n", "2026-05-21T08:00:00Z")
+
+	dashboard, err := v.BuildDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TodayLabel != "Friday, May 22" {
+		t.Fatalf("selected dashboard day should come from latest daily note date, got %q", dashboard.TodayLabel)
+	}
+	if dashboard.Calendar.MonthLabel != "May 2026" {
+		t.Fatalf("calendar month label=%q", dashboard.Calendar.MonthLabel)
+	}
+	if !calendarHasDay(dashboard.Calendar.Weeks, "22", true, true) || !calendarHasDay(dashboard.Calendar.Weeks, "21", false, true) {
+		t.Fatalf("calendar should mark selected day and days with daily notes: %+v", dashboard.Calendar.Weeks)
+	}
+	if len(dashboard.ActiveProjects) == 0 || dashboard.ActiveProjects[0].Label != "France-Publications" {
+		t.Fatalf("active projects should group by project and sort by update time: %+v", dashboard.ActiveProjects)
+	}
+	if !activeProjectContains(dashboard.ActiveProjects, "Notes-web") || !activeProjectContains(dashboard.ActiveProjects, "Amsterdam") {
+		t.Fatalf("active projects missing expected project groups: %+v", dashboard.ActiveProjects)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<div class="home-dashboard">`,
+		`<section class="today-card card">`,
+		`Friday, May 22`,
+		`<section class="active-projects card">`,
+		`France-Publications`,
+		`Notes-web`,
+		`<aside class="home-calendar card">`,
+		`May 2026`,
+		`class="calendar-day has-note selected today"`,
+		`<section class="selected-day card">`,
+		`<section class="quick-jump card">`,
+		`<section class="recent-notes card">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing dashboard homepage markup %q in:\n%s", want, body)
+		}
+	}
+}
+
+func calendarHasDay(weeks [][]CalendarDay, label string, selected, hasNote bool) bool {
+	for _, week := range weeks {
+		for _, day := range week {
+			if day.Label == label && day.Selected == selected && day.HasNote == hasNote {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func activeProjectContains(projects []ActiveProject, label string) bool {
+	for _, project := range projects {
+		if project.Label == label {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHomeDashboardDateQuerySelectsCalendarDay(t *testing.T) {
+	v := makeVault(t)
+	p := filepath.Join(v.Root, filepath.FromSlash("Areas/Daily Briefings/2026-05-21-briefing.md"))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# Older Briefing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old, err := time.Parse(time.RFC3339, "2026-05-21T08:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := time.Parse(time.RFC3339, "2026-05-22T09:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestPath := filepath.Join(v.Root, filepath.FromSlash("Areas/Daily Briefings/2026-05-22-briefing.md"))
+	if err := os.Chtimes(latestPath, latest, latest); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/?date=2026-05-21", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `Thursday, May 21`) || !strings.Contains(body, `aria-label="2026-05-21">21</a>`) {
+		t.Fatalf("date query should select requested day in homepage:\n%s", body)
+	}
+}
+
+func TestHomeDashboardCSSDefinesTwoColumnCalendarLayout(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`.home-dashboard{display:grid;grid-template-columns:minmax(0,1fr) 280px`,
+		`.home-main{min-width:0;display:grid;gap:18px}`,
+		`.home-calendar`,
+		`.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))`,
+		`.calendar-day.selected`,
+		`.active-project-row`,
+		`@media (max-width: 900px)`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing homepage calendar/project CSS %q in:\n%s", want, css)
+		}
+	}
 }
 
 func TestBacklinksAndSearch(t *testing.T) {
