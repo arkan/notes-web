@@ -1,0 +1,80 @@
+package app
+
+const templates = `
+{{define "layout-start"}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · Notes Web</title><link rel="stylesheet" href="/_static/style.css"><script defer src="/_static/app.js"></script><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'; mermaid.initialize({startOnLoad:true,theme:'neutral'});</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script></head><body><div class="shell"><aside class="side"><a class="brand" href="/">Notes Web</a><form class="search" action="/_search"><input name="q" placeholder="Search…" value="{{.Q}}"></form><section><h3>Favorites</h3>{{range .Favorites}}<a class="nav" href="{{index . "URL"}}">★ {{index . "Label"}}</a>{{end}}</section><section><h3>Vault</h3>{{template "tree" .Tree}}</section></aside><main class="main">
+{{end}}
+{{define "layout-end"}}</main></div></body></html>{{end}}
+{{define "tree"}}<ul class="tree">{{range .}}<li>{{if .IsDir}}<details class="tree-folder" data-tree-path="{{.Rel}}"><summary>📁 {{.Name}}</summary>{{if .Children}}{{template "tree" .Children}}{{end}}</details>{{else}}<a href="{{.URL}}">📄 {{.Name}}</a>{{end}}</li>{{end}}</ul>{{end}}
+{{define "home"}}{{template "layout-start" .}}<h1>Home</h1><button class="copy-link" data-copy-link>Copy link</button><div class="cards"><section class="card"><h2>Latest daily note</h2>{{with .Latest}}<a class="biglink" href="{{url .RelPath}}">{{.RelPath}}</a>{{else}}<p>No daily note found.</p>{{end}}</section><section class="card"><h2>Favorites</h2>{{range .Favorites}}<a class="pill" href="{{index . "URL"}}">{{index . "Label"}}</a>{{end}}</section></div><h2>Recent notes</h2><ul class="list">{{range .Recent}}<li><a href="{{url .RelPath}}">{{.RelPath}}</a><small>{{.ModTime.Format "2006-01-02 15:04"}}</small></li>{{end}}</ul>{{template "layout-end" .}}{{end}}
+{{define "note"}}{{template "layout-start" .}}<nav class="crumb"><a href="/">Home</a> / {{.Note.RelPath}}</nav><article class="note"><header><h1>{{.Doc.Title}}</h1><button class="copy-link" data-copy-link>Copy link</button></header>{{if .Doc.Toc}}<details class="toc" open><summary>Table of contents</summary><ul>{{range .Doc.Toc}}<li class="lvl{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ul></details>{{end}}<div class="content">{{safe .Doc.HTML}}</div></article><section class="backlinks"><h2>Backlinks</h2>{{if .Backlinks}}<ul>{{range .Backlinks}}<li><a href="{{url .RelPath}}">{{.RelPath}}</a></li>{{end}}</ul>{{else}}<p>No backlinks.</p>{{end}}</section>{{template "layout-end" .}}{{end}}
+{{define "folder"}}{{template "layout-start" .}}<h1>📁 {{.Path}}</h1><button class="copy-link" data-copy-link>Copy link</button><ul class="list">{{range .Items}}<li><a href="{{index . "URL"}}">{{if index . "Dir"}}📁{{else}}📄{{end}} {{index . "Name"}}</a></li>{{end}}</ul>{{template "layout-end" .}}{{end}}
+{{define "search"}}{{template "layout-start" .}}<h1>Search</h1><form class="search big" action="/_search"><input name="q" value="{{.Q}}" autofocus><button>Search</button></form>{{if .Err}}<p class="error">{{.Err}}</p>{{end}}<ul class="results">{{range .Results}}<li><a href="{{.URL}}">{{.RelPath}}:{{.Line}}</a><p>{{.Snippet}}</p></li>{{else}}{{if .Q}}<p>No results.</p>{{end}}{{end}}</ul>{{template "layout-end" .}}{{end}}
+{{define "resolve"}}{{template "layout-start" .}}<h1>Choose a note</h1><p>Multiple notes match <code>{{.Name}}</code>.</p><ul class="list">{{range .Matches}}<li><a href="{{url .RelPath}}">{{.RelPath}}</a></li>{{end}}</ul>{{template "layout-end" .}}{{end}}
+{{define "missing"}}{{template "layout-start" .}}<h1>Note not found</h1><p>No note matches <code>{{.Name}}</code>.</p>{{template "layout-end" .}}{{end}}
+`
+
+const css = `
+:root{--bg:#f7f5ef;--panel:#fffdfa;--ink:#27231d;--muted:#786f63;--line:#e2dccc;--accent:#6b5cff;--soft:#efecff}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}.shell{display:grid;grid-template-columns:300px 1fr;min-height:100vh}.side{position:sticky;top:0;height:100vh;overflow:auto;padding:22px;background:var(--panel);border-right:1px solid var(--line)}.brand{display:block;font-weight:800;font-size:22px;text-decoration:none;color:var(--ink);margin-bottom:18px}.main{max-width:980px;width:100%;padding:40px 56px}.search{display:flex;gap:8px;margin:12px 0 24px}.search input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:white}.search.big input{font-size:18px}button{border:1px solid var(--line);background:white;border-radius:10px;padding:8px 12px;cursor:pointer}button.copied,.task-id.copied{border-color:#2b8a3e;color:#2b8a3e;background:#ebfbee}h1,h2,h3{line-height:1.2}h1{font-size:40px;margin:0 0 24px}h2{margin-top:32px}.nav,.tree a,.list a,.results a{color:var(--ink);text-decoration:none}.nav{display:block;padding:5px 0}.tree{list-style:none;padding-left:12px;margin:4px 0}.tree ul{border-left:1px solid var(--line);margin-left:8px}.tree li{margin:4px 0}.tree summary{cursor:pointer;user-select:none;border-radius:8px;padding:2px 4px}.tree summary:hover,.tree a:hover{background:var(--soft)}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px}.biglink{font-size:18px;color:var(--accent)}.pill{display:inline-block;padding:7px 10px;margin:4px;border-radius:999px;background:var(--soft);color:var(--accent);text-decoration:none}.crumb{color:var(--muted);margin-bottom:16px}.note header{display:flex;align-items:start;justify-content:space-between;gap:20px}.content{font-size:17px}.content img{max-width:100%}.content pre{overflow:auto;padding:14px;border-radius:12px;background:#f1eee6}.content code{background:#eee9dc;border-radius:5px;padding:1px 4px}.content table{border-collapse:collapse;width:100%;margin:16px 0}.content th,.content td{border:1px solid var(--line);padding:8px 10px}.frontmatter,.toc,.backlinks{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;margin:18px 0}.frontmatter dl{display:grid;grid-template-columns:150px 1fr;gap:6px}.frontmatter dt{font-weight:700}.callout{border-left:4px solid var(--accent);background:var(--soft);padding:10px 14px;border-radius:10px;margin:16px 0}.callout-title{font-weight:700}.task-id{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:1px 7px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font:12px ui-monospace,SFMono-Regular,Menlo,monospace;vertical-align:middle}.task-id:hover{color:var(--accent);border-color:var(--accent)}.lvl2{margin-left:12px}.lvl3{margin-left:24px}.list,.results{padding-left:0;list-style:none}.list li,.results li{padding:10px 0;border-bottom:1px solid var(--line)}small{display:block;color:var(--muted)}.error{color:#b00020}@media(max-width:850px){.shell{grid-template-columns:1fr}.side{position:relative;height:auto}.main{padding:24px}.cards{grid-template-columns:1fr}}
+`
+
+const js = `
+const sidebarStorageKey = 'notes-web:sidebar-open';
+function readSidebarState() {
+  try { return new Set(JSON.parse(localStorage.getItem(sidebarStorageKey) || '[]')); }
+  catch { return new Set(); }
+}
+function writeSidebarState(openPaths) {
+  try { localStorage.setItem(sidebarStorageKey, JSON.stringify([...openPaths].sort())); }
+  catch {}
+}
+function restoreSidebarState() {
+  const openPaths = readSidebarState();
+  document.querySelectorAll('details.tree-folder[data-tree-path]').forEach((details) => {
+    const path = details.dataset.treePath;
+    details.open = openPaths.has(path);
+    details.addEventListener('toggle', () => {
+      const current = readSidebarState();
+      if (details.open) current.add(path); else current.delete(path);
+      writeSidebarState(current);
+    });
+  });
+}
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+function markCopied(el, label) {
+  const old = el.textContent;
+  el.classList.add('copied');
+  if (label) el.textContent = label;
+  setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
+}
+document.addEventListener('DOMContentLoaded', restoreSidebarState);
+document.addEventListener('click', async (ev) => {
+  const copy = ev.target.closest('[data-copy]');
+  if (copy) {
+    ev.preventDefault();
+    await copyText(copy.dataset.copy);
+    markCopied(copy, 'copied');
+    return;
+  }
+  const link = ev.target.closest('[data-copy-link]');
+  if (link) {
+    ev.preventDefault();
+    await copyText(location.href);
+    markCopied(link, 'Link copied');
+  }
+});
+`
