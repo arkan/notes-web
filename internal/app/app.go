@@ -611,31 +611,43 @@ func tocFromMarkdown(s string) []TOCItem {
 
 type Searcher struct{ vault *Vault }
 
+type ParsedSearchQuery struct {
+	Terms       []string
+	Tag         string
+	Path        string
+	Title       string
+	Frontmatter map[string]string
+}
+
 func NewSearcher(v *Vault) *Searcher { return &Searcher{vault: v} }
+
 func (s *Searcher) Search(q string) ([]SearchResult, error) {
-	q = strings.TrimSpace(q)
-	if q == "" {
+	parsed := ParseSearchQuery(q)
+	if parsed.Empty() {
 		return nil, nil
 	}
 	idx, err := s.vault.BuildIndex()
 	if err != nil {
 		return nil, err
 	}
-	ql := strings.ToLower(q)
 	var results []SearchResult
 	for _, meta := range idx.Notes {
 		note, err := s.vault.ReadNote(meta.RelPath)
 		if err != nil {
 			return nil, err
 		}
-		line, lineNo := bestSearchLine(note, ql)
-		score := searchScore(meta, note, ql, lineNo > 0)
+		if !parsed.MatchesFilters(meta, note) {
+			continue
+		}
+		line, lineNo := bestSearchLineForTerms(note, parsed.Terms)
+		score := searchScoreForQuery(meta, note, parsed, lineNo > 0)
 		if score == 0 {
 			continue
 		}
 		if line == "" {
 			line = meta.Title
 		}
+		highlightTerms := parsed.HighlightTerms()
 		results = append(results, SearchResult{
 			RelPath:     meta.RelPath,
 			URL:         meta.URL,
@@ -643,7 +655,7 @@ func (s *Searcher) Search(q string) ([]SearchResult, error) {
 			Line:        fmt.Sprint(lineNo),
 			LineNo:      lineNo,
 			Snippet:     strings.TrimSpace(line),
-			SnippetHTML: highlightSearchSnippet(line, ql),
+			SnippetHTML: highlightSearchSnippet(line, highlightTerms),
 			Score:       score,
 		})
 	}
@@ -651,7 +663,7 @@ func (s *Searcher) Search(q string) ([]SearchResult, error) {
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
-		if results[i].Title != results[j].Title {
+		if strings.ToLower(results[i].Title) != strings.ToLower(results[j].Title) {
 			return strings.ToLower(results[i].Title) < strings.ToLower(results[j].Title)
 		}
 		return results[i].RelPath < results[j].RelPath
@@ -659,43 +671,179 @@ func (s *Searcher) Search(q string) ([]SearchResult, error) {
 	return results, nil
 }
 
-func searchScore(meta NoteMeta, note Note, ql string, hasContentMatch bool) int {
+func ParseSearchQuery(q string) ParsedSearchQuery {
+	parsed := ParsedSearchQuery{Frontmatter: map[string]string{}}
+	for _, token := range tokenizeSearchQuery(q) {
+		key, value, ok := strings.Cut(token, ":")
+		if ok {
+			key = strings.ToLower(strings.TrimSpace(key))
+			value = strings.TrimSpace(value)
+			switch key {
+			case "tag":
+				parsed.Tag = normalizeTag(value)
+				continue
+			case "path":
+				parsed.Path = strings.ToLower(value)
+				continue
+			case "title":
+				parsed.Title = strings.ToLower(value)
+				continue
+			case "frontmatter", "fm":
+				if fmKey, fmValue, ok := strings.Cut(value, "="); ok {
+					parsed.Frontmatter[strings.ToLower(strings.TrimSpace(fmKey))] = strings.ToLower(strings.TrimSpace(fmValue))
+					continue
+				}
+			}
+		}
+		term := strings.TrimSpace(token)
+		if term != "" {
+			parsed.Terms = append(parsed.Terms, strings.ToLower(term))
+		}
+	}
+	return parsed
+}
+
+func tokenizeSearchQuery(q string) []string {
+	var tokens []string
+	var b strings.Builder
+	inQuote := false
+	for _, r := range q {
+		switch r {
+		case '"':
+			inQuote = !inQuote
+		case ' ', '\t', '\n':
+			if inQuote {
+				b.WriteRune(r)
+			} else if b.Len() > 0 {
+				tokens = append(tokens, b.String())
+				b.Reset()
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() > 0 {
+		tokens = append(tokens, b.String())
+	}
+	return tokens
+}
+
+func (q ParsedSearchQuery) Empty() bool {
+	return q.Tag == "" && q.Path == "" && q.Title == "" && len(q.Frontmatter) == 0 && len(q.Terms) == 0
+}
+
+func (q ParsedSearchQuery) MatchesFilters(meta NoteMeta, note Note) bool {
+	if q.Tag != "" && !containsString(meta.Tags, q.Tag) {
+		return false
+	}
+	if q.Path != "" && !strings.Contains(strings.ToLower(meta.RelPath), q.Path) {
+		return false
+	}
+	if q.Title != "" && !strings.Contains(strings.ToLower(meta.Title), q.Title) {
+		return false
+	}
+	for key, want := range q.Frontmatter {
+		got, ok := note.Frontmatter[key]
+		if !ok || !strings.Contains(strings.ToLower(fmt.Sprint(got)), want) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (q ParsedSearchQuery) HighlightTerms() []string {
+	if len(q.Terms) > 0 {
+		return q.Terms
+	}
+	var out []string
+	if q.Tag != "" {
+		out = append(out, q.Tag)
+	}
+	if q.Path != "" {
+		out = append(out, q.Path)
+	}
+	if q.Title != "" {
+		out = append(out, q.Title)
+	}
+	for _, value := range q.Frontmatter {
+		out = append(out, value)
+	}
+	return out
+}
+
+func searchScoreForQuery(meta NoteMeta, note Note, query ParsedSearchQuery, hasContentMatch bool) int {
 	score := 0
 	title := strings.ToLower(meta.Title)
 	rel := strings.ToLower(meta.RelPath)
 	body := strings.ToLower(note.Body)
-	switch {
-	case title == ql:
-		score += 1000
-	case strings.Contains(title, ql):
-		score += 700
+	for _, term := range query.Terms {
+		switch {
+		case title == term:
+			score += 1000
+		case strings.Contains(title, term):
+			score += 700
+		}
+		if strings.Contains(rel, term) {
+			score += 300
+		}
+		if strings.Contains(body, term) {
+			score += 100
+		}
 	}
-	if strings.Contains(rel, ql) {
-		score += 300
+	if query.Tag != "" {
+		score += 250
 	}
-	if hasContentMatch || strings.Contains(body, ql) {
-		score += 100
+	if query.Path != "" {
+		score += 200
+	}
+	if query.Title != "" {
+		score += 500
+	}
+	if len(query.Frontmatter) > 0 {
+		score += 250
+	}
+	if hasContentMatch {
+		score += 25
 	}
 	return score
 }
 
-func bestSearchLine(note Note, ql string) (string, int) {
+func bestSearchLineForTerms(note Note, terms []string) (string, int) {
+	if len(terms) == 0 {
+		return "", 0
+	}
 	lines := strings.Split(note.Body, "\n")
 	for i, line := range lines {
-		if strings.Contains(strings.ToLower(line), ql) {
-			return line, i + 1
+		lower := strings.ToLower(line)
+		for _, term := range terms {
+			if strings.Contains(lower, term) {
+				return line, i + 1
+			}
 		}
 	}
 	return "", 0
 }
 
-func highlightSearchSnippet(snippet, ql string) string {
+func highlightSearchSnippet(snippet string, terms []string) string {
 	escaped := html.EscapeString(strings.TrimSpace(snippet))
-	if ql == "" {
-		return escaped
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(html.EscapeString(term)))
+		escaped = re.ReplaceAllStringFunc(escaped, func(match string) string { return `<mark>` + match + `</mark>` })
 	}
-	re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(ql))
-	return re.ReplaceAllStringFunc(escaped, func(match string) string { return `<mark>` + match + `</mark>` })
+	return escaped
 }
 
 type Server struct {

@@ -202,6 +202,82 @@ func TestSearchRanksTitleMatchesAndHighlightsSnippets(t *testing.T) {
 	}
 }
 
+func TestSearchQuerySyntaxFiltersTagsPathsTitlesFrontmatterAndPhrases(t *testing.T) {
+	v := makeVault(t)
+	searcher := NewSearcher(v)
+
+	cases := []struct {
+		name    string
+		query   string
+		want    []string
+		notWant []string
+	}{
+		{name: "tag filter", query: "tag:daily", want: []string{"Areas/Daily Briefings/2026-05-22-briefing.md"}, notWant: []string{"Areas/Target.md"}},
+		{name: "path filter", query: "path:\"Daily Briefings\"", want: []string{"Areas/Daily Briefings/2026-05-22-briefing.md"}, notWant: []string{"Areas/Target.md"}},
+		{name: "title filter", query: "title:Target", want: []string{"Areas/Target.md"}, notWant: []string{"Areas/Linker.md"}},
+		{name: "frontmatter filter", query: "frontmatter:title=\"Daily Briefing\"", want: []string{"Areas/Daily Briefings/2026-05-22-briefing.md"}, notWant: []string{"Areas/Target.md"}},
+		{name: "quoted exact phrase", query: "\"Hello [[Target|the target]]\"", want: []string{"Areas/Daily Briefings/2026-05-22-briefing.md"}, notWant: []string{"Areas/Linker.md"}},
+		{name: "combined filter and term", query: "tag:daily target", want: []string{"Areas/Daily Briefings/2026-05-22-briefing.md"}, notWant: []string{"Areas/Target.md", "Areas/Linker.md"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			results, err := searcher.Search(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, rel := range tc.want {
+				if !searchResultsContainRel(results, rel) {
+					t.Fatalf("query %q missing %s in %+v", tc.query, rel, results)
+				}
+			}
+			for _, rel := range tc.notWant {
+				if searchResultsContainRel(results, rel) {
+					t.Fatalf("query %q unexpectedly included %s in %+v", tc.query, rel, results)
+				}
+			}
+		})
+	}
+
+	results, err := searcher.Search("tag:daily target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !strings.Contains(results[0].SnippetHTML, "<mark>") {
+		t.Fatalf("combined query should highlight matched content, got %+v", results)
+	}
+}
+
+func searchResultsContainRel(results []SearchResult, rel string) bool {
+	for _, result := range results {
+		if result.RelPath == rel {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSearchPageShowsQuerySyntaxHelp(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_search?q=tag%3Adaily+target", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`value="tag:daily target"`,
+		`Search syntax`,
+		`tag:daily`,
+		`path:&quot;Areas/Daily Briefings&quot;`,
+		`frontmatter:title=&quot;Daily Briefing&quot;`,
+		`&quot;exact phrase&quot;`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing search UI help %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestTODOShowsCopyableTaskIDs(t *testing.T) {
 	v := makeVault(t)
 	note, err := v.ReadNote("Areas/TODO.md")
