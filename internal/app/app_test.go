@@ -77,6 +77,67 @@ func TestMarkdownRenderingFeatures(t *testing.T) {
 	}
 }
 
+func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`<details class="toc" data-panel-state="toc" open><summary>Table of contents`,
+		`<details class="frontmatter" data-panel-state="frontmatter" open><summary>Frontmatter`,
+		`<details class="link-panel forward-links" data-panel-state="forward-links" open><summary><span class="panel-title">Forward links</span>`,
+		`<details class="link-panel backlinks" data-panel-state="backlinks" open><summary><span class="panel-title">Backlinks</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing persisted collapsible panel markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		`const panelStateStorageKey = 'notes-web:panel-open';`,
+		`function restorePanelState()`,
+		`[data-panel-state]`,
+		`localStorage.setItem(panelStateStorageKey`,
+		`restorePanelState();`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing panel localStorage JS %q in:\n%s", want, js)
+		}
+	}
+}
+
+func TestLinkPanelSummariesUseCompactInlineTypography(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Daily%20Briefings/2026-05-22-briefing.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, `<summary><h2>Forward links`) || strings.Contains(body, `<summary><h2>Backlinks`) {
+		t.Fatalf("link panel summaries must not use block h2 headings inside summary:\n%s", body)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`.link-panel summary{cursor:pointer;display:flex;align-items:center;gap:8px;font-size:1rem;font-weight:650;line-height:1.35}`,
+		`.link-panel .panel-title{display:inline;font:inherit}`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing compact inline link-panel CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
 func TestCalloutsRenderWithTypesIconsTitlesAndClosedMarkup(t *testing.T) {
 	v := makeVault(t)
 	note := Note{RelPath: "Areas/Callouts.md", Body: "> [!warning] Check this\n> Important body\n\n> [!tip]\n> Useful body\n"}
@@ -862,9 +923,9 @@ func TestNoteLinksShowForwardLinksAndBacklinkContext(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`Forward links <span class="count">`,
+		`<span class="panel-title">Forward links</span> <span class="count">`,
 		`No forward links.`,
-		`Backlinks <span class="count">`,
+		`<span class="panel-title">Backlinks</span> <span class="count">`,
 		`Areas/Linker.md`,
 		`See [[Target]]`,
 	} {
@@ -878,7 +939,7 @@ func TestNoteLinksShowForwardLinksAndBacklinkContext(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
 	for _, want := range []string{
-		`Forward links <span class="count">`,
+		`<span class="panel-title">Forward links</span> <span class="count">`,
 		`href="/Areas/Target.md"`,
 		`class="missing-link"`,
 		`Missing`,

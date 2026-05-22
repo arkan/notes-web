@@ -1,6 +1,7 @@
 
 const paletteShortcutClass = 'palette-shortcuts';
 const sidebarStorageKey = 'notes-web:sidebar-open';
+const panelStateStorageKey = 'notes-web:panel-open';
 const themeStorageKey = 'notes-web:theme';
 const fontSizeStorageKey = 'notes-web:font-size';
 const readingFocusStorageKey = 'notes-web:reading-focus';
@@ -187,6 +188,30 @@ function restoreSidebarState() {
   });
 }
 
+function readPanelState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(panelStateStorageKey) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch { return {}; }
+}
+function writePanelState(state) {
+  try { localStorage.setItem(panelStateStorageKey, JSON.stringify(state)); }
+  catch {}
+}
+function restorePanelState() {
+  const state = readPanelState();
+  document.querySelectorAll('details[data-panel-state]').forEach((details) => {
+    const key = details.dataset.panelState;
+    if (!key) return;
+    if (Object.prototype.hasOwnProperty.call(state, key)) details.open = Boolean(state[key]);
+    details.addEventListener('toggle', () => {
+      const current = readPanelState();
+      current[key] = details.open;
+      writePanelState(current);
+    });
+  });
+}
+
 function openSidebar() {
   document.body.classList.add('sidebar-open');
   document.querySelector('[data-sidebar-toggle]')?.setAttribute('aria-expanded', 'true');
@@ -266,7 +291,7 @@ function markCopied(el, label) {
   if (label) el.textContent = label;
   setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
 }
-document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); initMobileSidebar(); initListFilters(); });
+document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); });
 document.addEventListener('click', async (ev) => {
   const copy = ev.target.closest('[data-copy]');
   if (copy) {

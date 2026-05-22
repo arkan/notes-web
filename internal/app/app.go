@@ -596,7 +596,7 @@ func renderFrontmatter(fm map[string]any) string {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	b.WriteString(`<details class="frontmatter" open><summary>Frontmatter</summary><dl>`)
+	b.WriteString(`<details class="frontmatter" data-panel-state="frontmatter" open><summary>Frontmatter</summary><dl>`)
 	for _, k := range keys {
 		b.WriteString("<dt>" + html.EscapeString(k) + "</dt><dd>" + html.EscapeString(fmt.Sprint(fm[k])) + "</dd>")
 	}
