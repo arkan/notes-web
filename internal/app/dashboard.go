@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var now = time.Now
+
 type Dashboard struct {
 	LatestDaily     *Note
 	TodayLabel      string
@@ -272,7 +274,7 @@ func (v *Vault) MonthCalendar(idx *VaultIndex, selected time.Time) MonthCalendar
 				InMonth:  day.Month() == selected.Month(),
 				HasNote:  hasDaily[date],
 				Selected: sameDate(day, selected),
-				Today:    sameDate(day, selected),
+				Today:    sameDate(day, now()),
 			})
 		}
 		cal.Weeks = append(cal.Weeks, days)

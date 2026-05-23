@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -21,24 +22,49 @@ type BacklinkContext struct {
 
 var wikiLinkRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
+type parsedWikiLink struct {
+	Raw               string
+	Target            string
+	TargetWithHeading string
+	Display           string
+}
+
+func parseWikiLink(raw string) (parsedWikiLink, bool) {
+	raw = strings.TrimSpace(raw)
+	parts := strings.SplitN(raw, "|", 2)
+	targetWithHeading := strings.TrimSpace(parts[0])
+	target := strings.TrimSpace(strings.Split(targetWithHeading, "#")[0])
+	if target == "" {
+		return parsedWikiLink{}, false
+	}
+	display := target
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		display = strings.TrimSpace(parts[1])
+	}
+	return parsedWikiLink{Raw: raw, Target: target, TargetWithHeading: targetWithHeading, Display: display}, true
+}
+
+func wikiLinksIn(line string) []parsedWikiLink {
+	var links []parsedWikiLink
+	for _, match := range wikiLinkRe.FindAllStringSubmatch(line, -1) {
+		link, ok := parseWikiLink(match[1])
+		if ok {
+			links = append(links, link)
+		}
+	}
+	return links
+}
+
 func (v *Vault) ForwardLinksFrom(note Note) []ForwardLink {
 	var links []ForwardLink
 	seen := map[string]bool{}
-	for _, match := range wikiLinkRe.FindAllStringSubmatch(note.Body, -1) {
-		raw := strings.TrimSpace(match[1])
-		parts := strings.SplitN(raw, "|", 2)
-		targetWithHeading := strings.TrimSpace(parts[0])
-		target := strings.TrimSpace(strings.Split(targetWithHeading, "#")[0])
-		if target == "" || seen[raw] {
+	for _, parsed := range wikiLinksIn(note.Body) {
+		if seen[parsed.Raw] {
 			continue
 		}
-		seen[raw] = true
-		display := target
-		if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-			display = strings.TrimSpace(parts[1])
-		}
-		res := v.ResolveWikiLink(raw)
-		link := ForwardLink{Target: target, Display: display, Kind: res.Kind}
+		seen[parsed.Raw] = true
+		res := v.ResolveWikiLink(parsed.Raw)
+		link := ForwardLink{Target: parsed.Target, Display: parsed.Display, Kind: res.Kind}
 		if res.Kind == "unique" {
 			link.URL = v.URLForRel(res.Matches[0].RelPath)
 		}
@@ -49,8 +75,8 @@ func (v *Vault) ForwardLinksFrom(note Note) []ForwardLink {
 
 func (v *Vault) BacklinksWithContext(relPath string) []BacklinkContext {
 	var out []BacklinkContext
-	base := strings.TrimSuffix(pathBase(relPath), pathExt(relPath))
-	noExt := strings.TrimSuffix(relPath, pathExt(relPath))
+	base := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
+	noExt := strings.TrimSuffix(relPath, filepath.Ext(relPath))
 	for _, p := range v.MarkdownFiles() {
 		note, err := v.ReadNote(p)
 		if err != nil || note.RelPath == relPath {
@@ -71,18 +97,4 @@ func (v *Vault) BacklinksWithContext(relPath string) []BacklinkContext {
 		return out[i].Source.RelPath < out[j].Source.RelPath
 	})
 	return out
-}
-
-func pathBase(rel string) string {
-	parts := strings.Split(rel, "/")
-	return parts[len(parts)-1]
-}
-
-func pathExt(rel string) string {
-	base := pathBase(rel)
-	idx := strings.LastIndex(base, ".")
-	if idx < 0 {
-		return ""
-	}
-	return base[idx:]
 }

@@ -126,18 +126,15 @@ func isDisplayTag(tag string) bool {
 	return err == nil && year >= 1900 && year <= 2100
 }
 
-var wikiLinkTargetRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
-
 func extractOutgoingWikiLinks(body string) []string {
 	seen := map[string]bool{}
 	var links []string
-	for _, match := range wikiLinkTargetRe.FindAllStringSubmatch(body, -1) {
-		target := strings.TrimSpace(strings.Split(strings.Split(match[1], "|")[0], "#")[0])
-		if target == "" || seen[target] {
+	for _, link := range wikiLinksIn(body) {
+		if seen[link.Target] {
 			continue
 		}
-		seen[target] = true
-		links = append(links, target)
+		seen[link.Target] = true
+		links = append(links, link.Target)
 	}
 	sort.Strings(links)
 	return links
@@ -147,18 +144,8 @@ func extractWikiLinkOccurrences(body string) []WikiLinkOccurrence {
 	var links []WikiLinkOccurrence
 	lines := strings.Split(body, "\n")
 	for i, line := range lines {
-		for _, match := range wikiLinkTargetRe.FindAllStringSubmatch(line, -1) {
-			raw := strings.TrimSpace(match[1])
-			parts := strings.SplitN(raw, "|", 2)
-			target := strings.TrimSpace(strings.Split(parts[0], "#")[0])
-			if target == "" {
-				continue
-			}
-			display := target
-			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-				display = strings.TrimSpace(parts[1])
-			}
-			links = append(links, WikiLinkOccurrence{Target: target, Display: display, Context: strings.TrimSpace(line), LineNo: i + 1})
+		for _, link := range wikiLinksIn(line) {
+			links = append(links, WikiLinkOccurrence{Target: link.Target, Display: link.Display, Context: strings.TrimSpace(line), LineNo: i + 1})
 		}
 	}
 	return links

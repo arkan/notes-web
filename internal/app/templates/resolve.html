@@ -1,0 +1,1 @@
+{{define "resolve"}}{{template "layout-start" .}}<h1>Choose a note</h1><p>Multiple notes match <code>{{.Name}}</code>.</p><ul class="list">{{range .Matches}}<li><a href="{{url .RelPath}}">{{.RelPath}}</a></li>{{end}}</ul>{{template "layout-end" .}}{{end}}
