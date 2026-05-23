@@ -96,6 +96,87 @@ func treeContainsRel(nodes []TreeNode, rel string) bool {
 	return false
 }
 
+func TestFolderPageSortsByNameAscendingByDefaultAndOffersSortLinks(t *testing.T) {
+	v := makeVault(t)
+	writeNoteForFolderSortTest(t, v, "Areas/SortTest/Beta.md", "2026-05-21T08:00:00Z")
+	writeNoteForFolderSortTest(t, v, "Areas/SortTest/Alpha.md", "2026-05-22T08:00:00Z")
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/SortTest", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	assertInOrder(t, body, "Alpha.md", "Beta.md")
+	for _, want := range []string{
+		`href="/Areas/SortTest?sort=name&amp;dir=asc" aria-current="true"`,
+		`href="/Areas/SortTest?sort=name&amp;dir=desc"`,
+		`href="/Areas/SortTest?sort=modified&amp;dir=desc"`,
+		`href="/Areas/SortTest?sort=modified&amp;dir=asc"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("folder page missing sort control %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestFolderPageSortCanUseQueryAndConfigDefault(t *testing.T) {
+	v := makeVault(t)
+	writeNoteForFolderSortTest(t, v, "Areas/SortTest/A-Older.md", "2026-05-21T08:00:00Z")
+	writeNoteForFolderSortTest(t, v, "Areas/SortTest/Z-Newer.md", "2026-05-22T08:00:00Z")
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/SortTest?sort=modified&dir=desc", nil)
+	s.ServeHTTP(w, r)
+	assertInOrder(t, w.Body.String(), "Z-Newer.md", "A-Older.md")
+
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("folder_sort: modified_desc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Areas/SortTest", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	assertInOrder(t, body, "Z-Newer.md", "A-Older.md")
+	if !strings.Contains(body, `href="/Areas/SortTest?sort=modified&amp;dir=desc" aria-current="true"`) {
+		t.Fatalf("configured default sort should be marked current in:\n%s", body)
+	}
+}
+
+func writeNoteForFolderSortTest(t *testing.T, v *Vault, rel, mod string) {
+	t.Helper()
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# "+strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mt, err := time.Parse(time.RFC3339, mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertInOrder(t *testing.T, body string, first string, second string) {
+	t.Helper()
+	if listStart := strings.Index(body, `<ul class="list folder-list">`); listStart >= 0 {
+		body = body[listStart:]
+		if listEnd := strings.Index(body, `</ul>`); listEnd >= 0 {
+			body = body[:listEnd]
+		}
+	}
+	firstIndex := strings.Index(body, first)
+	secondIndex := strings.Index(body, second)
+	if firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex {
+		t.Fatalf("expected %q before %q in:\n%s", first, second, body)
+	}
+}
+
 func TestWikilinkResolution(t *testing.T) {
 	v := makeVault(t)
 	if r := v.ResolveWikiLink("Target"); r.Kind != "unique" {

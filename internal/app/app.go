@@ -48,9 +48,10 @@ type SearchResult struct {
 	LineNo, Score                                   int
 }
 type Config struct {
-	Favorites []string
-	DailyGlob string
-	Hidden    []string
+	Favorites  []string
+	DailyGlob  string
+	Hidden     []string
+	FolderSort string
 }
 type TreeNode struct {
 	Name, Rel, URL string
@@ -266,7 +267,7 @@ func (v *Vault) Favorites() []map[string]string {
 }
 
 func (v *Vault) LoadConfig() Config {
-	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md"}
+	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", FolderSort: "name_asc"}
 	b, err := os.ReadFile(filepath.Join(v.Root, ".notes-web.yaml"))
 	if err != nil {
 		return cfg
@@ -280,6 +281,11 @@ func (v *Vault) LoadConfig() Config {
 		}
 		if strings.HasPrefix(tr, "daily_glob:") {
 			cfg.DailyGlob = strings.Trim(strings.TrimSpace(strings.TrimPrefix(tr, "daily_glob:")), "'\"")
+			section = ""
+			continue
+		}
+		if strings.HasPrefix(tr, "folder_sort:") {
+			cfg.FolderSort = strings.Trim(strings.TrimSpace(strings.TrimPrefix(tr, "folder_sort:")), "'\"")
 			section = ""
 			continue
 		}
@@ -789,7 +795,65 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 	s.file(w, r, p, st)
 }
 
+type folderSort struct {
+	Field string
+	Dir   string
+}
+
+func normalizeFolderSort(raw string) folderSort {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "name_desc":
+		return folderSort{Field: "name", Dir: "desc"}
+	case "modified_asc", "mod_asc", "mtime_asc":
+		return folderSort{Field: "modified", Dir: "asc"}
+	case "modified_desc", "mod_desc", "mtime_desc":
+		return folderSort{Field: "modified", Dir: "desc"}
+	default:
+		return folderSort{Field: "name", Dir: "asc"}
+	}
+}
+
+func folderSortFromRequest(r *http.Request, cfg Config) folderSort {
+	selected := normalizeFolderSort(cfg.FolderSort)
+	field := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	dir := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("dir")))
+	if field == "" && dir == "" {
+		return selected
+	}
+	if field != "modified" {
+		field = "name"
+	}
+	if dir != "desc" {
+		dir = "asc"
+	}
+	return folderSort{Field: field, Dir: dir}
+}
+
+func folderSortLinks(baseURL string, selected folderSort) []map[string]any {
+	options := []struct {
+		Label string
+		Field string
+		Dir   string
+	}{
+		{Label: "Name ↑", Field: "name", Dir: "asc"},
+		{Label: "Name ↓", Field: "name", Dir: "desc"},
+		{Label: "Modified ↓", Field: "modified", Dir: "desc"},
+		{Label: "Modified ↑", Field: "modified", Dir: "asc"},
+	}
+	links := make([]map[string]any, 0, len(options))
+	for _, opt := range options {
+		links = append(links, map[string]any{
+			"Label":   opt.Label,
+			"URL":     baseURL + "?sort=" + opt.Field + "&dir=" + opt.Dir,
+			"Current": selected.Field == opt.Field && selected.Dir == opt.Dir,
+		})
+	}
+	return links
+}
+
 func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
+	cfg := s.vault.LoadConfig()
+	selectedSort := folderSortFromRequest(r, cfg)
 	ents, _ := os.ReadDir(p)
 	var items []map[string]any
 	for _, e := range ents {
@@ -801,14 +865,37 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 		if s.vault.HiddenRel(rel) {
 			continue
 		}
-		items = append(items, map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel)})
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		items = append(items, map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel), "ModTime": info.ModTime()})
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if selectedSort.Field == "modified" {
+			left := items[i]["ModTime"].(time.Time)
+			right := items[j]["ModTime"].(time.Time)
+			if !left.Equal(right) {
+				if selectedSort.Dir == "desc" {
+					return left.After(right)
+				}
+				return left.Before(right)
+			}
+		}
+		left := strings.ToLower(items[i]["Name"].(string))
+		right := strings.ToLower(items[j]["Name"].(string))
+		if selectedSort.Dir == "desc" && selectedSort.Field == "name" {
+			return left > right
+		}
+		return left < right
+	})
 	c := s.common(filepath.Base(p))
 	relPath := s.vault.Rel(p)
 	c["Path"] = relPath
 	c["FolderName"] = filepath.Base(p)
 	c["Breadcrumbs"] = breadcrumbsForRel(s.vault, relPath)
 	c["Items"] = items
+	c["SortLinks"] = folderSortLinks(s.vault.URLForRel(relPath), selectedSort)
 	s.render(w, "folder", c)
 }
 

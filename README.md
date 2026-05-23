@@ -157,6 +157,7 @@ favorites:
   - Areas/Daily Briefings
   - Areas/TODO.md
 daily_glob: "Areas/Daily Briefings/*-briefing.md"
+folder_sort: name_asc
 ```
 
 ### `favorites`
@@ -166,6 +167,10 @@ A list of vault-relative files or folders displayed on the home page and in the 
 ### `daily_glob`
 
 A glob used to find the latest daily note shown on the home page.
+
+### `folder_sort`
+
+Default sort for folder pages. Accepted values: `name_asc` (default), `name_desc`, `modified_desc`, `modified_asc`.
 
 ## Command-line options
 
