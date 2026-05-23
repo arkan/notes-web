@@ -494,8 +494,10 @@ func (s *Server) common(title string) map[string]any {
 	return s.commonForActive(title, "")
 }
 
+const sidebarTreeDepth = 3
+
 func (s *Server) commonForActive(title, activeRel string) map[string]any {
-	return map[string]any{"Title": title, "Tree": s.vault.TreeForActive(2, activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel}
+	return map[string]any{"Title": title, "Tree": s.vault.TreeForActive(sidebarTreeDepth, activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel}
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {

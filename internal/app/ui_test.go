@@ -35,6 +35,35 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	}
 }
 
+func TestSidebarShowsDailyNoteFilesNestedByYearAndMonth(t *testing.T) {
+	v := makeVault(t)
+	dailyRel := "Daily Notes/2026/2026-05/2026-05-23.md"
+	dailyPath := filepath.Join(v.Root, filepath.FromSlash(dailyRel))
+	if err := os.MkdirAll(filepath.Dir(dailyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dailyPath, []byte("# Daily note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	for _, want := range []string{
+		`data-tree-path="Daily Notes"`,
+		`data-tree-path="Daily Notes/2026"`,
+		`data-tree-path="Daily Notes/2026/2026-05"`,
+		`href="/Daily%20Notes/2026/2026-05/2026-05-23.md"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sidebar should include nested daily note entry %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestMainContainerUsesAvailableWidthWithoutHorizontalPageOverflow(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
