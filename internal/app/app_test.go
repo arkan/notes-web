@@ -23,7 +23,7 @@ func makeVault(t *testing.T) *Vault {
 		}
 	}
 	must(".notes-web.yaml", "favorites:\n  - path: Areas/Daily Briefings\n    label: Daily Briefings\ndaily_glob: Areas/Daily Briefings/*-briefing.md\n")
-	must("Areas/Daily Briefings/2026-05-22-briefing.md", "---\ntitle: Daily Briefing\ntags: [daily]\n---\n# Heading One\n\nHello [[Target|the target]] and [[Missing]].\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n> [!note] A callout\n> body\n\n```mermaid\ngraph TD; A-->B;\n```\n")
+	must("Areas/Daily Briefings/2026-05-22-briefing.md", "---\ntitle: Daily Briefing\ntags: [daily]\n---\n# Heading One\n\nHello [[Target|the target]] and [[Missing]].\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n```go\nfmt.Println(\"copy me\")\n```\n\n> [!note] A callout\n> body\n\n```mermaid\ngraph TD; A-->B;\n```\n")
 	must("Areas/Target.md", "# Target\n")
 	must("Areas/Work/Meeting Notes.md", "# Work\n")
 	must("Areas/Personal/Meeting Notes.md", "# Personal\n")
@@ -230,7 +230,7 @@ func TestMarkdownRenderingFeatures(t *testing.T) {
 	}
 	r := NewRenderer(v)
 	doc := r.Render(note)
-	for _, want := range []string{"Daily Briefing", "frontmatter", "<table>", "type=\"checkbox\" checked", "class=\"callout note callout-note\"", "class=\"mermaid\"", "/Areas/Target.md", "/_missing?name=Missing"} {
+	for _, want := range []string{"Daily Briefing", "frontmatter", "<table>", "type=\"checkbox\" checked", "class=\"callout note callout-note\"", "class=\"mermaid\"", "class=\"code-block\"", "class=\"code-copy\"", "data-copy-code", "aria-label=\"Copy code block\"", "/Areas/Target.md", "/_missing?name=Missing"} {
 		if !strings.Contains(doc.HTML, want) {
 			t.Fatalf("missing %q in html:\n%s", want, doc.HTML)
 		}

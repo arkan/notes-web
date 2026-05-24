@@ -28,7 +28,7 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	r = httptest.NewRequest("GET", "/_static/app.js", nil)
 	s.ServeHTTP(w, r)
 	js := w.Body.String()
-	for _, want := range []string{"copyText", "navigator.clipboard", "execCommand", "data-copy", "notes-web:sidebar-open", "data-tree-path", "localStorage"} {
+	for _, want := range []string{"copyText", "navigator.clipboard", "execCommand", "data-copy", "data-copy-code", "closest('pre')", "notes-web:sidebar-open", "data-tree-path", "localStorage"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("missing %q in app.js:\n%s", want, js)
 		}

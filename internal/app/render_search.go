@@ -40,6 +40,7 @@ func normalizeRenderedHTML(s string) string {
 	s = strings.ReplaceAll(s, `<input disabled="" type="checkbox">`, `<input type="checkbox" disabled>`)
 	s = decorateTaskLists(s)
 	s = decorateTaskMetadata(s)
+	s = decorateCodeBlocks(s)
 	tidRe := regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
 	s = tidRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
 	return s
@@ -65,6 +66,17 @@ func decorateTaskMetadata(s string) string {
 	priorityRe := regexp.MustCompile(`[⏫🔼🔽⏬]`)
 	s = priorityRe.ReplaceAllString(s, `<span class="task-meta priority-meta" title="Priority">Priority</span>`)
 	return s
+}
+
+func decorateCodeBlocks(s string) string {
+	re := regexp.MustCompile(`(?s)<pre([^>]*)><code([^>]*)>(.*?)</code></pre>`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		parts := re.FindStringSubmatch(match)
+		if len(parts) != 4 {
+			return match
+		}
+		return `<pre class="code-block"` + parts[1] + `><button type="button" class="code-copy" data-copy-code aria-label="Copy code block" title="Copy code">⧉</button><code` + parts[2] + `>` + parts[3] + `</code></pre>`
+	})
 }
 
 func (r *Renderer) preprocess(s string) string {

@@ -511,6 +511,15 @@ function markCopied(el, label) {
 }
 document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initTodoActions(); initTodoFilters(); });
 document.addEventListener('click', async (ev) => {
+  const codeCopy = ev.target.closest('[data-copy-code]');
+  if (codeCopy) {
+    ev.preventDefault();
+    const code = codeCopy.closest('pre')?.querySelector('code');
+    if (!code) return;
+    await copyText(code.innerText);
+    markCopied(codeCopy, '✓');
+    return;
+  }
   const copy = ev.target.closest('[data-copy]');
   if (copy) {
     ev.preventDefault();
