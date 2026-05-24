@@ -31,20 +31,38 @@ The application is designed for private use on a local network or over Tailscale
 
 ## Requirements
 
-- Go 1.25+ recommended.
-- `ripgrep` (`rg`) is optional but recommended for faster search.
 - A Markdown vault directory, for example `/home/arkan/hermes`.
+- `ripgrep` (`rg`) is optional but recommended for faster search.
+- Go 1.25+ is only required when building from source.
 
-## Build
+## Install from a prebuilt release archive
+
+This is the preferred installation method for regular use.
+
+Download the archive matching your platform from the
+[latest GitHub Release](https://github.com/arkan/notes-web/releases/latest):
+
+- `notes-web-<version>-linux-amd64.tar.gz`
+- `notes-web-<version>-linux-arm64.tar.gz`
+- `notes-web-<version>-darwin-amd64.tar.gz`
+- `notes-web-<version>-darwin-arm64.tar.gz`
+
+Example for Linux amd64:
 
 ```bash
-go build -o ./bin/notes-web ./cmd/notes-web
+version=v0.1.0
+archive="notes-web-${version}-linux-amd64.tar.gz"
+url="https://github.com/arkan/notes-web/releases/download/${version}/${archive}"
+curl -L "${url}" -o notes-web.tar.gz
+
+tar -xzf notes-web.tar.gz
+install -D notes-web ~/.local/bin/notes-web
 ```
 
-## Run locally
+Run it:
 
 ```bash
-./bin/notes-web \
+notes-web \
   --vault /home/arkan/hermes \
   --host 127.0.0.1 \
   --port 8080
@@ -54,6 +72,24 @@ Open:
 
 ```text
 http://127.0.0.1:8080/
+```
+
+Optional: verify the archive checksum with the `checksums-sha256.txt` file
+attached to the same release.
+
+## Build from source
+
+```bash
+go build -o ./bin/notes-web ./cmd/notes-web
+```
+
+## Run locally from a source checkout
+
+```bash
+./bin/notes-web \
+  --vault /home/arkan/hermes \
+  --host 127.0.0.1 \
+  --port 8080
 ```
 
 ## Install/run with Nix
