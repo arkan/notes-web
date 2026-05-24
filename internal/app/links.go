@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -42,6 +43,33 @@ func parseWikiLink(raw string) (parsedWikiLink, bool) {
 		display = strings.TrimSpace(parts[1])
 	}
 	return parsedWikiLink{Raw: raw, Target: target, TargetWithHeading: targetWithHeading, Display: display}, true
+}
+
+func (v *Vault) preprocessWikiLinks(s string) string {
+	return wikiLinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		inner := strings.TrimSuffix(strings.TrimPrefix(match, "[["), "]]")
+		return v.wikiLinkMarkdown(inner, match)
+	})
+}
+
+func (v *Vault) wikiLinkMarkdown(inner, fallback string) string {
+	link, ok := parseWikiLink(inner)
+	if !ok {
+		return fallback
+	}
+	res := v.ResolveWikiLink(link.Raw)
+	switch res.Kind {
+	case "unique":
+		u := v.URLForRel(res.Matches[0].RelPath)
+		if res.Heading != "" {
+			u += "#" + slugify(res.Heading)
+		}
+		return "[" + link.Display + "](" + u + ")"
+	case "ambiguous":
+		return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(res.Target) + ")"
+	default:
+		return "[" + link.Display + "](/_missing?name=" + url.QueryEscape(res.Target) + ")"
+	}
 }
 
 func wikiLinksIn(line string) []parsedWikiLink {

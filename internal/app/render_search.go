@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"html"
-	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -84,23 +83,7 @@ func (r *Renderer) preprocess(s string) string {
 	s = preprocessMermaid(s)
 	return wikiLinkRe.ReplaceAllStringFunc(s, func(m string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(m, "[["), "]]")
-		link, ok := parseWikiLink(inner)
-		if !ok {
-			return m
-		}
-		res := r.vault.ResolveWikiLink(link.Raw)
-		switch res.Kind {
-		case "unique":
-			u := r.vault.URLForRel(res.Matches[0].RelPath)
-			if res.Heading != "" {
-				u += "#" + slugify(res.Heading)
-			}
-			return "[" + link.Display + "](" + u + ")"
-		case "ambiguous":
-			return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(res.Target) + ")"
-		default:
-			return "[" + link.Display + "](/_missing?name=" + url.QueryEscape(res.Target) + ")"
-		}
+		return r.vault.wikiLinkMarkdown(inner, m)
 	})
 }
 

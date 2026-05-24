@@ -292,7 +292,7 @@ func TestTodoPageUsesDenseReadOnlyRowsAndHidesTaskIDs(t *testing.T) {
 	body := strings.Join([]string{
 		"# TODO",
 		"",
-		"- [ ] ⏫ Overdue task https://example.com/path?x=1&y=2 #admin ➕ 2026-05-01 📅 2026-05-19 <!-- tid:overdue123 -->",
+		"- [ ] ⏫ Overdue task [[Target|the target]] https://example.com/path?x=1&y=2 #admin ➕ 2026-05-01 📅 2026-05-19 <!-- tid:overdue123 -->",
 		"- [ ] 🔼 Today task #project/silex ➕ 2026-05-20 📅 2026-05-22 🔁 every week <!-- tid:today123 -->",
 		"- [ ] Upcoming task #book 📅 2026-07-01 <!-- tid:upcoming123 -->",
 		"- [ ] No date task #inbox <!-- tid:nodate123 -->",
@@ -327,7 +327,7 @@ func TestTodoPageUsesDenseReadOnlyRowsAndHidesTaskIDs(t *testing.T) {
 		`data-tags=" admin"`,
 		`data-priority="P1"`,
 		`class="task-priority p1">P1</span>`,
-		`<span class="task-title">Overdue task <a href="https://example.com/path?x=1&amp;y=2" target="_blank" rel="noopener noreferrer">https://example.com/path?x=1&amp;y=2</a></span>`,
+		`<span class="task-title">Overdue task <a href="/Areas/Target.md" target="_self">the target</a> <a href="https://example.com/path?x=1&amp;y=2" target="_blank" rel="noopener noreferrer">https://example.com/path?x=1&amp;y=2</a></span>`,
 		`<span class="task-tag">#admin</span>`,
 		`Added 2026-05-01`,
 		`Repeats every week`,

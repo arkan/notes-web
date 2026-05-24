@@ -81,6 +81,7 @@ type SelectedDaySummary struct {
 
 type TaskItem struct {
 	Text         string
+	RenderedText template.HTML
 	ID           string
 	Due          string
 	Done         string
@@ -98,7 +99,14 @@ type TaskItem struct {
 }
 
 func (t TaskItem) TextHTML() template.HTML {
+	if t.RenderedText != "" {
+		return t.RenderedText
+	}
 	return template.HTML(linkifyTaskText(t.Text))
+}
+
+func (v *Vault) TaskTextHTML(text string) template.HTML {
+	return template.HTML(linkifyTaskText(v.preprocessWikiLinks(text)))
 }
 
 func linkifyTaskText(text string) string {
@@ -145,6 +153,9 @@ func linkifyRawTaskURLs(text string) string {
 func taskLinkHTML(href, label string) string {
 	escapedHref := stdhtml.EscapeString(href)
 	escapedLabel := stdhtml.EscapeString(label)
+	if strings.HasPrefix(href, "/") {
+		return `<a href="` + escapedHref + `" target="_self">` + escapedLabel + `</a>`
+	}
 	return `<a href="` + escapedHref + `" target="_blank" rel="noopener noreferrer">` + escapedLabel + `</a>`
 }
 
@@ -459,6 +470,7 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 				task.SourceRel = note.RelPath
 				task.SourceURL = v.URLForRel(note.RelPath)
 				task.Project = taskProject(task, project)
+				task.RenderedText = v.TaskTextHTML(task.Text)
 				task.LineNo = i + 1
 				tasks = append(tasks, task)
 			}
@@ -498,7 +510,7 @@ var (
 	priorityRe        = regexp.MustCompile(`[⏫🔼🔽⏬]`)
 	tagRe             = regexp.MustCompile(`(^|\s)#([[:alnum:]_/-]+)`)
 	taskURLRe         = regexp.MustCompile(`https?://[^\s<]+`)
-	taskMarkdownURLRe = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\s<)]+)\)`)
+	taskMarkdownURLRe = regexp.MustCompile(`\[([^\]]+)\]\(((?:https?://|/)[^\s<)]+)\)`)
 )
 
 func parseTaskLine(line string) (TaskItem, bool) {
