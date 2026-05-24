@@ -378,6 +378,35 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 			t.Fatalf("TODO dropdown should only expose mark-done and copy-id actions, found %q in:\n%s", forbidden, body)
 		}
 	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function positionTodoDropdown(menu, dropdown)",
+		"dropdown.style.position = 'fixed'",
+		"window.innerHeight",
+		"Math.min(window.innerHeight - dropdownRect.height - 8, Math.max(8, buttonRect.top - dropdownRect.height - 6))",
+		"positionTodoDropdown(menu, dropdown)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("TODO dropdown must be viewport-positioned to avoid clipping, missing %q in:\n%s", want, js)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".task-menu-dropdown{position:fixed;",
+		"z-index:40",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("TODO dropdown must escape clipped task containers, missing CSS %q in:\n%s", want, css)
+		}
+	}
 }
 
 func TestTagsPageHasWorkingFilterMarkupWithoutMetricCards(t *testing.T) {

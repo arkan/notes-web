@@ -460,13 +460,31 @@ function prioritySortRank(priority) {
   return 9;
 }
 
+function resetTodoDropdown(dropdown) {
+  dropdown.hidden = true;
+  dropdown.style.removeProperty('left');
+  dropdown.style.removeProperty('top');
+}
 function closeTodoMenus(exceptMenu) {
   document.querySelectorAll('[data-task-menu][aria-expanded="true"]').forEach((button) => {
     if (button === exceptMenu) return;
     button.setAttribute('aria-expanded', 'false');
     const dropdown = button.closest('.task-actions')?.querySelector('.task-menu-dropdown');
-    if (dropdown) dropdown.hidden = true;
+    if (dropdown) resetTodoDropdown(dropdown);
   });
+}
+function positionTodoDropdown(menu, dropdown) {
+  const buttonRect = menu.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.left = '0px';
+  dropdown.style.top = '0px';
+  dropdown.hidden = false;
+  const dropdownRect = dropdown.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - dropdownRect.width - 8, buttonRect.right - dropdownRect.width));
+  const opensDown = buttonRect.bottom + 6 + dropdownRect.height <= window.innerHeight - 8;
+  const top = opensDown ? Math.min(window.innerHeight - dropdownRect.height - 8, buttonRect.bottom + 6) : Math.min(window.innerHeight - dropdownRect.height - 8, Math.max(8, buttonRect.top - dropdownRect.height - 6));
+  dropdown.style.left = left + 'px';
+  dropdown.style.top = top + 'px';
 }
 function initTodoActions() {
   document.addEventListener('click', (ev) => {
@@ -481,8 +499,11 @@ function initTodoActions() {
     const expanded = menu.getAttribute('aria-expanded') === 'true';
     closeTodoMenus(menu);
     menu.setAttribute('aria-expanded', String(!expanded));
-    dropdown.hidden = expanded;
+    if (expanded) resetTodoDropdown(dropdown);
+    else positionTodoDropdown(menu, dropdown);
   });
+  window.addEventListener('resize', () => closeTodoMenus());
+  window.addEventListener('scroll', () => closeTodoMenus(), true);
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeTodoMenus();
   });
