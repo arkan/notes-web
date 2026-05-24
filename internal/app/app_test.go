@@ -205,6 +205,149 @@ func TestMarkdownRenderingFeatures(t *testing.T) {
 	}
 }
 
+func TestTaskParserExtractsOperationalMetadataAndKeepsTitleClean(t *testing.T) {
+	task, ok := parseTaskLine("- [ ] ⏫ Phase 1 Silex — Core KB #project/silex #admin ➕ 2026-05-24 📅 2026-07-01 🔁 every month on the 1st <!-- tid:abc123 -->")
+	if !ok {
+		t.Fatal("expected task line to parse")
+	}
+	if task.Text != "Phase 1 Silex — Core KB" {
+		t.Fatalf("title should hide task metadata, got %q", task.Text)
+	}
+	if task.Priority != "P1" || task.PriorityRank != 1 {
+		t.Fatalf("priority=%q rank=%d, want P1/1", task.Priority, task.PriorityRank)
+	}
+	if task.Added != "2026-05-24" || task.Due != "2026-07-01" || task.Repeat != "every month on the 1st" {
+		t.Fatalf("metadata not extracted: added=%q due=%q repeat=%q", task.Added, task.Due, task.Repeat)
+	}
+	if strings.Join(task.Tags, ",") != "project/silex,admin" {
+		t.Fatalf("tags=%v", task.Tags)
+	}
+	if task.ID != "abc123" {
+		t.Fatalf("id=%q", task.ID)
+	}
+}
+
+func TestTaskTextHTMLLinkifiesURLsWithoutTrustingRawHTML(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "raw URL",
+			text: `Read <script>alert(1)</script> https://example.com/a?x=1&y=2.`,
+			want: `Read &lt;script&gt;alert(1)&lt;/script&gt; <a href="https://example.com/a?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">https://example.com/a?x=1&amp;y=2</a>.`,
+		},
+		{
+			name: "markdown URL",
+			text: `Read [the doc](https://example.com/doc?x=1&y=2) today`,
+			want: `Read <a href="https://example.com/doc?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">the doc</a> today`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := TaskItem{Text: tc.text}
+			if got := string(task.TextHTML()); got != tc.want {
+				t.Fatalf("TextHTML()=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTodoPageUsesDenseReadOnlyRowsAndHidesTaskIDs(t *testing.T) {
+	v := makeVault(t)
+	todoPath := filepath.Join(v.Root, "Areas", "TODO.md")
+	body := strings.Join([]string{
+		"# TODO",
+		"",
+		"- [ ] ⏫ Overdue task https://example.com/path?x=1&y=2 #admin ➕ 2026-05-01 📅 2026-05-19 <!-- tid:overdue123 -->",
+		"- [ ] 🔼 Today task #project/silex ➕ 2026-05-20 📅 2026-05-22 🔁 every week <!-- tid:today123 -->",
+		"- [ ] Upcoming task #book 📅 2026-07-01 <!-- tid:upcoming123 -->",
+		"- [ ] No date task #inbox <!-- tid:nodate123 -->",
+		"- [x] Done middle task #admin ✅ 2026-05-21 <!-- tid:done123 -->",
+		"- [x] Done newest task #admin ✅ 2026-05-23 <!-- tid:done-newest123 -->",
+		"- [x] Done oldest task #admin ✅ 2026-05-20 <!-- tid:done-oldest123 -->",
+	}, "\n")
+	if err := os.WriteFile(todoPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_todo?today=2026-05-22", nil)
+	s.ServeHTTP(w, r)
+	html := w.Body.String()
+
+	for _, want := range []string{
+		`class="todo-shell"`,
+		`4 open · 1 overdue · 1 today · 1 upcoming · 1 no date hidden`,
+		`placeholder="Search tasks"`,
+		`data-todo-filter="tag"`,
+		`data-todo-filter="priority"`,
+		`data-todo-hide-nodate`,
+		`data-todo-hide-done`,
+		`<section class="todo-section overdue"`,
+		`<section class="todo-section today"`,
+		`<section class="todo-section upcoming"`,
+		`<section class="todo-section no-date"`,
+		`<section class="todo-section done"`,
+		`data-task-id="overdue123"`,
+		`data-tags=" admin"`,
+		`data-priority="P1"`,
+		`class="task-priority p1">P1</span>`,
+		`<span class="task-title">Overdue task <a href="https://example.com/path?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">https://example.com/path?x=1&amp;y=2</a></span>`,
+		`<span class="task-tag">#admin</span>`,
+		`Added 2026-05-01`,
+		`Repeats every week`,
+		`<div class="task-actions"><button type="button" class="task-menu" data-task-menu aria-haspopup="menu" aria-expanded="false" aria-label="Task actions" title="Task actions">⋯</button><div class="task-menu-dropdown" role="menu" hidden><button type="button" role="menuitem" data-copy="todo done overdue123">Mark as done</button><button type="button" role="menuitem" data-copy="td promote overdue123">Promote</button><button type="button" role="menuitem" data-copy="td demote overdue123">Demote</button><button type="button" role="menuitem" data-copy="td reschedule todo overdue123 due date to {yyyy-mm-dd}">Re-schedule due date ...</button><button type="button" role="menuitem" data-copy="overdue123">Copy todo ID</button></div></div>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("missing dense TODO markup %q in:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, `Copy task command`) || strings.Contains(html, `class="task-copy"`) || strings.Contains(html, `data-copy="td done `) {
+		t.Fatalf("legacy inline copy task command should be removed; actions belong in the dropdown:\n%s", html)
+	}
+	if strings.Contains(html, `class="task-title" href=`) || strings.Contains(html, `href="/Areas/TODO.md#line-3">Overdue task`) {
+		t.Fatalf("task title text should not link to the source line; only links inside the task text should be clickable:\n%s", html)
+	}
+	if strings.Contains(html, `class="task-project"`) || strings.Contains(html, `>Inbox</a>`) || strings.Contains(html, `>Admin</a>`) {
+		t.Fatalf("task project text/link should not be rendered in TODO rows:\n%s", html)
+	}
+	if strings.Contains(html, "tid:overdue123") || strings.Contains(html, "tid:today123") {
+		t.Fatalf("technical tid labels should stay hidden from the visible TODO UI:\n%s", html)
+	}
+	if strings.Contains(html, `<details class="todo-section no-date"`) || strings.Contains(html, `<details class="todo-section done"`) {
+		t.Fatalf("TODO sections must not be collapsible details/summary panels:\n%s", html)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, wantCSS := range []string{
+		`.task-primary{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;gap:10px;align-items:center}`,
+	} {
+		if !strings.Contains(css, wantCSS) {
+			t.Fatalf("TODO due date and action menu should align to the right with a compact trailing grid %q in:\n%s", wantCSS, css)
+		}
+	}
+	for _, forbidden := range []string{
+		`.todo-section.no-date:not([open]) .task-list`,
+		`.todo-section.done:not([open]) .task-list`,
+		`.todo-section>summary{cursor:pointer`,
+	} {
+		if strings.Contains(css, forbidden) {
+			t.Fatalf("TODO sections are static sections; CSS must not hide task lists behind details/open state %q in:\n%s", forbidden, css)
+		}
+	}
+
+	assertInOrder(t, html, `todo-section overdue`, `todo-section today`)
+	assertInOrder(t, html, `todo-section today`, `todo-section upcoming`)
+	assertInOrder(t, html, `Done newest task`, `Done middle task`)
+	assertInOrder(t, html, `Done middle task`, `Done oldest task`)
+}
+
 func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
@@ -233,6 +376,25 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 		`[data-panel-state]`,
 		`localStorage.setItem(panelStateStorageKey`,
 		`restorePanelState();`,
+		`function initTodoFilters()`,
+		`const todoFilterStorageKey = 'notes-web:todo-filters';`,
+		`readTodoFilterState()`,
+		`writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) })`,
+		`restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone })`,
+		`data-todo-search`,
+		`data-todo-filter="tag"`,
+		`data-todo-hide-nodate`,
+		`data-todo-hide-done`,
+		`matchesDone`,
+		`todoDateGroup`,
+		`sortTodoRows`,
+		`renderTodoGroupedView(shell, rows, group?.value || 'Due date')`,
+		`todo-dynamic-groups`,
+		`function initTodoActions()`,
+		`data-task-menu`,
+		`closeTodoMenus`,
+		`initTodoActions();`,
+		`initTodoFilters();`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("missing panel localStorage JS %q in:\n%s", want, js)

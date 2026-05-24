@@ -354,16 +354,26 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`class="todo-board"`,
-		`class="todo-column overdue"`,
-		`Overdue <span class="count">1</span>`,
-		`class="task-card"`,
+		`class="todo-shell"`,
+		`class="todo-toolbar"`,
+		`class="todo-section overdue"`,
+		`<h2 id="todo-overdue">Overdue</h2><span class="count">1</span>`,
+		`class="task-row"`,
 		`class="task-checkbox"`,
-		`class="task-date overdue-date"`,
-		`title="Copy task ID"`,
-		`class="task-id"`,
-		`<details class="todo-column done"`,
-		`<summary><h2>Done <span class="count">1</span></h2></summary>`,
+		`class="task-due overdue-date"`,
+		`class="task-menu" data-task-menu`,
+		`data-copy="todo done `,
+		`data-copy="td promote `,
+		`Promote`,
+		`data-copy="td demote `,
+		`Demote`,
+		`due date to {yyyy-mm-dd}`,
+		`Re-schedule due date ...`,
+		`Mark as done`,
+		`Copy todo ID`,
+		`data-todo-hide-done`,
+		`<section class="todo-section done"`,
+		`<h2 id="todo-done">Done</h2><span class="count">1</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing TODO polish markup %q in:\n%s", want, body)

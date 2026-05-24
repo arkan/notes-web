@@ -642,15 +642,18 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`<h1>TODOs</h1>`,
-		`Overdue <span class="count">`,
+		`<section class="todo-section overdue"`,
+		`<h2 id="todo-overdue">Overdue</h2><span class="count">`,
 		`Change Captur tires`,
-		`Today <span class="count">`,
+		`<h2 id="todo-today">Today</h2><span class="count">`,
 		`Pay invoice`,
-		`Upcoming <span class="count">`,
+		`<h2 id="todo-upcoming">Upcoming</h2><span class="count">`,
 		`Plan trip`,
-		`No due date <span class="count">`,
+		`<section class="todo-section no-date"`,
+		`<h2 id="todo-no-date">No date</h2><span class="count">`,
 		`Read later`,
-		`Done <span class="count">`,
+		`<section class="todo-section done"`,
+		`<h2 id="todo-done">Done</h2><span class="count">`,
 		`Buy dog food`,
 	} {
 		if !strings.Contains(body, want) {

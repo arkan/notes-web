@@ -2,6 +2,9 @@ package app
 
 import (
 	"fmt"
+	stdhtml "html"
+	"html/template"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -78,15 +81,73 @@ type SelectedDaySummary struct {
 }
 
 type TaskItem struct {
-	Text      string
-	ID        string
-	Due       string
-	Done      string
-	SourceRel string
-	SourceURL string
-	LineNo    int
-	Completed bool
-	DateClass string
+	Text         string
+	ID           string
+	Due          string
+	Done         string
+	Added        string
+	Repeat       string
+	Priority     string
+	SourceRel    string
+	SourceURL    string
+	Project      string
+	ProjectURL   string
+	LineNo       int
+	PriorityRank int
+	Completed    bool
+	DateClass    string
+	Tags         []string
+}
+
+func (t TaskItem) TextHTML() template.HTML {
+	return template.HTML(linkifyTaskText(t.Text))
+}
+
+func linkifyTaskText(text string) string {
+	var out strings.Builder
+	last := 0
+	for _, match := range taskMarkdownURLRe.FindAllStringSubmatchIndex(text, -1) {
+		start, end := match[0], match[1]
+		labelStart, labelEnd := match[2], match[3]
+		urlStart, urlEnd := match[4], match[5]
+		if start < last {
+			continue
+		}
+		out.WriteString(linkifyRawTaskURLs(text[last:start]))
+		out.WriteString(taskLinkHTML(text[urlStart:urlEnd], text[labelStart:labelEnd]))
+		last = end
+	}
+	out.WriteString(linkifyRawTaskURLs(text[last:]))
+	return out.String()
+}
+
+func linkifyRawTaskURLs(text string) string {
+	var out strings.Builder
+	last := 0
+	for _, match := range taskURLRe.FindAllStringIndex(text, -1) {
+		start, end := match[0], match[1]
+		if start < last {
+			continue
+		}
+		urlText := text[start:end]
+		trimmed := strings.TrimRight(urlText, `.,;:!?)]}`+"\"")
+		trailing := urlText[len(trimmed):]
+		if trimmed == "" {
+			continue
+		}
+		out.WriteString(stdhtml.EscapeString(text[last:start]))
+		out.WriteString(taskLinkHTML(trimmed, trimmed))
+		out.WriteString(stdhtml.EscapeString(trailing))
+		last = end
+	}
+	out.WriteString(stdhtml.EscapeString(text[last:]))
+	return out.String()
+}
+
+func taskLinkHTML(href, label string) string {
+	escapedHref := stdhtml.EscapeString(href)
+	escapedLabel := stdhtml.EscapeString(label)
+	return `<a href="` + escapedHref + `" target="_hover" rel="noopener noreferrer">` + escapedLabel + `</a>`
 }
 
 func (t TaskItem) DueClass(today string) string {
@@ -107,6 +168,34 @@ func (t TaskItem) StatusLabel() string {
 		return "Done"
 	}
 	return "Open"
+}
+
+func (t TaskItem) SourceLineURL() string {
+	if t.SourceURL == "" || t.LineNo <= 0 {
+		return t.SourceURL
+	}
+	return fmt.Sprintf("%s#line-%d", t.SourceURL, t.LineNo)
+}
+
+func (t TaskItem) PriorityLabel() string {
+	if t.Priority == "" {
+		return "—"
+	}
+	return t.Priority
+}
+
+func (t TaskItem) PriorityClass() string {
+	if t.Priority == "" {
+		return "none"
+	}
+	return strings.ToLower(t.Priority)
+}
+
+func (t TaskItem) CopyCommand() string {
+	if t.ID == "" {
+		return ""
+	}
+	return "td done " + t.ID
 }
 
 func (v *Vault) BuildDashboard() (Dashboard, error) {
@@ -322,6 +411,14 @@ type TaskBoard struct {
 	Done     []TaskItem
 }
 
+func (b TaskBoard) OpenCount() int {
+	return len(b.Overdue) + len(b.Today) + len(b.Upcoming) + len(b.NoDate)
+}
+
+func (b TaskBoard) Summary() string {
+	return fmt.Sprintf("%d open · %d overdue · %d today · %d upcoming · %d no date hidden", b.OpenCount(), len(b.Overdue), len(b.Today), len(b.Upcoming), len(b.NoDate))
+}
+
 func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 	tasks, err := v.AllTasks()
 	if err != nil {
@@ -343,6 +440,21 @@ func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 			board.Upcoming = append(board.Upcoming, task)
 		}
 	}
+	sort.SliceStable(board.Done, func(i, j int) bool {
+		if board.Done[i].Done != board.Done[j].Done {
+			if board.Done[i].Done == "" {
+				return false
+			}
+			if board.Done[j].Done == "" {
+				return true
+			}
+			return board.Done[i].Done > board.Done[j].Done
+		}
+		if board.Done[i].SourceRel != board.Done[j].SourceRel {
+			return board.Done[i].SourceRel < board.Done[j].SourceRel
+		}
+		return board.Done[i].LineNo < board.Done[j].LineNo
+	})
 	return board, nil
 }
 
@@ -356,11 +468,13 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 		if strings.ToLower(filepath.Base(note.RelPath)) != "todo.md" {
 			continue
 		}
+		project, projectRel := projectForRel(note.RelPath)
 		lines := strings.Split(note.Body, "\n")
 		for i, line := range lines {
 			if task, ok := parseTaskLine(line); ok {
 				task.SourceRel = note.RelPath
 				task.SourceURL = v.URLForRel(note.RelPath)
+				task.Project, task.ProjectURL = taskProject(task, project, v.URLForRel(projectRel))
 				task.LineNo = i + 1
 				tasks = append(tasks, task)
 			}
@@ -379,6 +493,9 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 			}
 			return tasks[i].Due < tasks[j].Due
 		}
+		if tasks[i].PriorityRank != tasks[j].PriorityRank {
+			return normalizePriorityRank(tasks[i].PriorityRank) < normalizePriorityRank(tasks[j].PriorityRank)
+		}
 		if tasks[i].SourceRel != tasks[j].SourceRel {
 			return tasks[i].SourceRel < tasks[j].SourceRel
 		}
@@ -388,12 +505,16 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 }
 
 var (
-	taskLineRe = regexp.MustCompile(`^\s*- \[([ xX])\]\s+(.+)$`)
-	tidRe      = regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
-	dueRe      = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
-	doneRe     = regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
-	recurRe    = regexp.MustCompile(`🔁\s*`)
-	priorityRe = regexp.MustCompile(`[⏫🔼🔽⏬]`)
+	taskLineRe        = regexp.MustCompile(`^\s*- \[([ xX])\]\s+(.+)$`)
+	tidRe             = regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
+	dueRe             = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
+	doneRe            = regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
+	addedRe           = regexp.MustCompile(`➕\s*(\d{4}-\d{2}-\d{2})`)
+	recurRe           = regexp.MustCompile(`🔁\s*([^📅✅➕⏫🔼🔽⏬]+)`)
+	priorityRe        = regexp.MustCompile(`[⏫🔼🔽⏬]`)
+	tagRe             = regexp.MustCompile(`(^|\s)#([[:alnum:]_/-]+)`)
+	taskURLRe         = regexp.MustCompile(`https?://[^\s<]+`)
+	taskMarkdownURLRe = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\s<)]+)\)`)
 )
 
 func parseTaskLine(line string) (TaskItem, bool) {
@@ -412,6 +533,15 @@ func parseTaskLine(line string) (TaskItem, bool) {
 	if done := doneRe.FindStringSubmatch(body); len(done) > 1 {
 		task.Done = done[1]
 	}
+	if added := addedRe.FindStringSubmatch(body); len(added) > 1 {
+		task.Added = added[1]
+	}
+	metadataBody := tidRe.ReplaceAllString(body, "")
+	if repeat := recurRe.FindStringSubmatch(metadataBody); len(repeat) > 1 {
+		task.Repeat = strings.TrimSpace(repeat[1])
+	}
+	task.Priority, task.PriorityRank = parseTaskPriority(body)
+	task.Tags = extractTaskTags(body)
 	return task, true
 }
 
@@ -419,9 +549,68 @@ func cleanTaskText(s string) string {
 	s = tidRe.ReplaceAllString(s, "")
 	s = dueRe.ReplaceAllString(s, "")
 	s = doneRe.ReplaceAllString(s, "")
+	s = addedRe.ReplaceAllString(s, "")
 	s = recurRe.ReplaceAllString(s, "")
 	s = priorityRe.ReplaceAllString(s, "")
+	s = tagRe.ReplaceAllString(s, " ")
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func parseTaskPriority(s string) (string, int) {
+	switch {
+	case strings.Contains(s, "⏫"):
+		return "P1", 1
+	case strings.Contains(s, "🔼"):
+		return "P2", 2
+	case strings.Contains(s, "🔽"):
+		return "P3", 3
+	case strings.Contains(s, "⏬"):
+		return "P4", 4
+	default:
+		return "", 0
+	}
+}
+
+func normalizePriorityRank(rank int) int {
+	if rank == 0 {
+		return 99
+	}
+	return rank
+}
+
+func extractTaskTags(s string) []string {
+	matches := tagRe.FindAllStringSubmatch(s, -1)
+	seen := map[string]bool{}
+	tags := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 3 || match[2] == "" || seen[match[2]] {
+			continue
+		}
+		seen[match[2]] = true
+		tags = append(tags, match[2])
+	}
+	return tags
+}
+
+func taskProject(task TaskItem, fallbackLabel, fallbackURL string) (string, string) {
+	for _, tag := range task.Tags {
+		if strings.HasPrefix(tag, "project/") {
+			label := strings.TrimPrefix(tag, "project/")
+			if label != "" {
+				return strings.TrimSpace(strings.ReplaceAll(label, "-", " ")), "/_tags/" + url.PathEscape(tag)
+			}
+		}
+	}
+	for _, tag := range task.Tags {
+		switch tag {
+		case "admin", "nid", "fp", "santé", "sante":
+			return strings.Title(strings.ReplaceAll(tag, "-", " ")), "/_tags/" + url.PathEscape(tag)
+		}
+	}
+	if fallbackLabel == "Areas" || fallbackLabel == "TODO" {
+		return "Inbox", fallbackURL
+	}
+	return fallbackLabel, fallbackURL
 }
 
 type IndexResolution struct {
