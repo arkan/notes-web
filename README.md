@@ -190,15 +190,22 @@ Example:
 
 ```yaml
 favorites:
-  - Areas/Daily Briefings
-  - Areas/TODO.md
+  - path: Areas/Daily Briefings
+    label: Daily Briefings
+  - path: _todo
+    label: TODOs
+  - path: Projects
+    label: Projects
 daily_glob: "Areas/Daily Briefings/*-briefing.md"
 folder_sort: name_asc
 ```
 
 ### `favorites`
 
-A list of vault-relative files or folders displayed on the home page and in the sidebar.
+A list of vault-relative files or folders displayed on the home page, in the sidebar, and in the command palette. Each entry must define:
+
+- `path`: vault-relative file, folder, or internal route such as `_todo`.
+- `label`: display label used in the UI.
 
 ### `daily_glob`
 

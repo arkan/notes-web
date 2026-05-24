@@ -363,12 +363,6 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 		`class="task-due overdue-date"`,
 		`class="task-menu" data-task-menu`,
 		`data-copy="todo done `,
-		`data-copy="td promote `,
-		`Promote`,
-		`data-copy="td demote `,
-		`Demote`,
-		`due date to {yyyy-mm-dd}`,
-		`Re-schedule due date ...`,
 		`Mark as done`,
 		`Copy todo ID`,
 		`data-todo-hide-done`,
@@ -377,6 +371,11 @@ func TestTODOPageUsesCountersStructuredRowsAndCollapsedDone(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing TODO polish markup %q in:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{`td promote `, `td demote `, `td reschedule `, `Promote`, `Demote`, `Re-schedule`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("TODO dropdown should only expose mark-done and copy-id actions, found %q in:\n%s", forbidden, body)
 		}
 	}
 }

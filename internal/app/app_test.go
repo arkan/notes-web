@@ -268,12 +268,12 @@ func TestTaskTextHTMLLinkifiesURLsWithoutTrustingRawHTML(t *testing.T) {
 		{
 			name: "raw URL",
 			text: `Read <script>alert(1)</script> https://example.com/a?x=1&y=2.`,
-			want: `Read &lt;script&gt;alert(1)&lt;/script&gt; <a href="https://example.com/a?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">https://example.com/a?x=1&amp;y=2</a>.`,
+			want: `Read &lt;script&gt;alert(1)&lt;/script&gt; <a href="https://example.com/a?x=1&amp;y=2" target="_blank" rel="noopener noreferrer">https://example.com/a?x=1&amp;y=2</a>.`,
 		},
 		{
 			name: "markdown URL",
 			text: `Read [the doc](https://example.com/doc?x=1&y=2) today`,
-			want: `Read <a href="https://example.com/doc?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">the doc</a> today`,
+			want: `Read <a href="https://example.com/doc?x=1&amp;y=2" target="_blank" rel="noopener noreferrer">the doc</a> today`,
 		},
 	}
 	for _, tc := range cases {
@@ -327,17 +327,17 @@ func TestTodoPageUsesDenseReadOnlyRowsAndHidesTaskIDs(t *testing.T) {
 		`data-tags=" admin"`,
 		`data-priority="P1"`,
 		`class="task-priority p1">P1</span>`,
-		`<span class="task-title">Overdue task <a href="https://example.com/path?x=1&amp;y=2" target="_hover" rel="noopener noreferrer">https://example.com/path?x=1&amp;y=2</a></span>`,
+		`<span class="task-title">Overdue task <a href="https://example.com/path?x=1&amp;y=2" target="_blank" rel="noopener noreferrer">https://example.com/path?x=1&amp;y=2</a></span>`,
 		`<span class="task-tag">#admin</span>`,
 		`Added 2026-05-01`,
 		`Repeats every week`,
-		`<div class="task-actions"><button type="button" class="task-menu" data-task-menu aria-haspopup="menu" aria-expanded="false" aria-label="Task actions" title="Task actions">⋯</button><div class="task-menu-dropdown" role="menu" hidden><button type="button" role="menuitem" data-copy="todo done overdue123">Mark as done</button><button type="button" role="menuitem" data-copy="td promote overdue123">Promote</button><button type="button" role="menuitem" data-copy="td demote overdue123">Demote</button><button type="button" role="menuitem" data-copy="td reschedule todo overdue123 due date to {yyyy-mm-dd}">Re-schedule due date ...</button><button type="button" role="menuitem" data-copy="overdue123">Copy todo ID</button></div></div>`,
+		`<div class="task-actions"><button type="button" class="task-menu" data-task-menu aria-haspopup="menu" aria-expanded="false" aria-label="Task actions" title="Task actions">⋯</button><div class="task-menu-dropdown" role="menu" hidden><button type="button" role="menuitem" data-copy="todo done overdue123">Mark as done</button><button type="button" role="menuitem" data-copy="overdue123">Copy todo ID</button></div></div>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("missing dense TODO markup %q in:\n%s", want, html)
 		}
 	}
-	if strings.Contains(html, `Copy task command`) || strings.Contains(html, `class="task-copy"`) || strings.Contains(html, `data-copy="td done `) {
+	if strings.Contains(html, `Copy task command`) || strings.Contains(html, `class="task-copy"`) || strings.Contains(html, `data-copy="td done `) || strings.Contains(html, `td promote `) || strings.Contains(html, `td demote `) || strings.Contains(html, `td reschedule `) || strings.Contains(html, `Promote`) || strings.Contains(html, `Demote`) || strings.Contains(html, `Re-schedule`) {
 		t.Fatalf("legacy inline copy task command should be removed; actions belong in the dropdown:\n%s", html)
 	}
 	if strings.Contains(html, `class="task-title" href=`) || strings.Contains(html, `href="/Areas/TODO.md#line-3">Overdue task`) {

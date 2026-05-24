@@ -4,7 +4,6 @@ import (
 	"fmt"
 	stdhtml "html"
 	"html/template"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -91,7 +90,6 @@ type TaskItem struct {
 	SourceRel    string
 	SourceURL    string
 	Project      string
-	ProjectURL   string
 	LineNo       int
 	PriorityRank int
 	Completed    bool
@@ -147,7 +145,7 @@ func linkifyRawTaskURLs(text string) string {
 func taskLinkHTML(href, label string) string {
 	escapedHref := stdhtml.EscapeString(href)
 	escapedLabel := stdhtml.EscapeString(label)
-	return `<a href="` + escapedHref + `" target="_hover" rel="noopener noreferrer">` + escapedLabel + `</a>`
+	return `<a href="` + escapedHref + `" target="_blank" rel="noopener noreferrer">` + escapedLabel + `</a>`
 }
 
 func (t TaskItem) DueClass(today string) string {
@@ -170,13 +168,6 @@ func (t TaskItem) StatusLabel() string {
 	return "Open"
 }
 
-func (t TaskItem) SourceLineURL() string {
-	if t.SourceURL == "" || t.LineNo <= 0 {
-		return t.SourceURL
-	}
-	return fmt.Sprintf("%s#line-%d", t.SourceURL, t.LineNo)
-}
-
 func (t TaskItem) PriorityLabel() string {
 	if t.Priority == "" {
 		return "—"
@@ -189,13 +180,6 @@ func (t TaskItem) PriorityClass() string {
 		return "none"
 	}
 	return strings.ToLower(t.Priority)
-}
-
-func (t TaskItem) CopyCommand() string {
-	if t.ID == "" {
-		return ""
-	}
-	return "td done " + t.ID
 }
 
 func (v *Vault) BuildDashboard() (Dashboard, error) {
@@ -468,13 +452,13 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 		if strings.ToLower(filepath.Base(note.RelPath)) != "todo.md" {
 			continue
 		}
-		project, projectRel := projectForRel(note.RelPath)
+		project, _ := projectForRel(note.RelPath)
 		lines := strings.Split(note.Body, "\n")
 		for i, line := range lines {
 			if task, ok := parseTaskLine(line); ok {
 				task.SourceRel = note.RelPath
 				task.SourceURL = v.URLForRel(note.RelPath)
-				task.Project, task.ProjectURL = taskProject(task, project, v.URLForRel(projectRel))
+				task.Project = taskProject(task, project)
 				task.LineNo = i + 1
 				tasks = append(tasks, task)
 			}
@@ -592,25 +576,25 @@ func extractTaskTags(s string) []string {
 	return tags
 }
 
-func taskProject(task TaskItem, fallbackLabel, fallbackURL string) (string, string) {
+func taskProject(task TaskItem, fallbackLabel string) string {
 	for _, tag := range task.Tags {
 		if strings.HasPrefix(tag, "project/") {
 			label := strings.TrimPrefix(tag, "project/")
 			if label != "" {
-				return strings.TrimSpace(strings.ReplaceAll(label, "-", " ")), "/_tags/" + url.PathEscape(tag)
+				return strings.TrimSpace(strings.ReplaceAll(label, "-", " "))
 			}
 		}
 	}
 	for _, tag := range task.Tags {
 		switch tag {
 		case "admin", "nid", "fp", "santé", "sante":
-			return strings.Title(strings.ReplaceAll(tag, "-", " ")), "/_tags/" + url.PathEscape(tag)
+			return strings.Title(strings.ReplaceAll(tag, "-", " "))
 		}
 	}
 	if fallbackLabel == "Areas" || fallbackLabel == "TODO" {
-		return "Inbox", fallbackURL
+		return "Inbox"
 	}
-	return fallbackLabel, fallbackURL
+	return fallbackLabel
 }
 
 type IndexResolution struct {
