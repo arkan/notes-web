@@ -22,7 +22,7 @@ func makeVault(t *testing.T) *Vault {
 			t.Fatal(err)
 		}
 	}
-	must(".notes-web.yaml", "favorites:\n  - Areas/Daily Briefings\ndaily_glob: Areas/Daily Briefings/*-briefing.md\n")
+	must(".notes-web.yaml", "favorites:\n  - path: Areas/Daily Briefings\n    label: Daily Briefings\ndaily_glob: Areas/Daily Briefings/*-briefing.md\n")
 	must("Areas/Daily Briefings/2026-05-22-briefing.md", "---\ntitle: Daily Briefing\ntags: [daily]\n---\n# Heading One\n\nHello [[Target|the target]] and [[Missing]].\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n> [!note] A callout\n> body\n\n```mermaid\ngraph TD; A-->B;\n```\n")
 	must("Areas/Target.md", "# Target\n")
 	must("Areas/Work/Meeting Notes.md", "# Work\n")
@@ -52,7 +52,7 @@ func TestSafePathRejectsTraversal(t *testing.T) {
 
 func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - Areas/Secret\n  - Areas/Hidden.md\nhidden:\n  - Areas/Secret\n  - Areas/Hidden.md\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Secret\n    label: Secret\n  - path: Areas/Hidden.md\n    label: Hidden\nhidden:\n  - Areas/Secret\n  - Areas/Hidden.md\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	secretDir := filepath.Join(v.Root, "Areas", "Secret")
@@ -84,6 +84,38 @@ func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != 404 {
 		t.Fatalf("hidden note direct URL status=%d want 404, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestFavoritesUseConfiguredPathAndLabel(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\n  - path: _todo\n    label: Todos\n  - path: Projects/\n    label: Projects\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	favorites := v.Favorites()
+	if len(favorites) != 3 {
+		t.Fatalf("favorites len=%d want 3: %+v", len(favorites), favorites)
+	}
+	if favorites[0].Path != "Areas/Daily Briefings" || favorites[0].Label != "Briefings" || favorites[0].URL != "/Areas/Daily%20Briefings" {
+		t.Fatalf("first favorite mismatch: %+v", favorites[0])
+	}
+	if favorites[1].Path != "_todo" || favorites[1].Label != "Todos" || favorites[1].URL != "/_todo" {
+		t.Fatalf("todo favorite mismatch: %+v", favorites[1])
+	}
+	if favorites[2].Path != "Projects" || favorites[2].Label != "Projects" || favorites[2].URL != "/Projects" {
+		t.Fatalf("projects favorite mismatch: %+v", favorites[2])
+	}
+}
+
+func TestFavoriteRequiresConfiguredLabel(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: _todo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if favorites := v.Favorites(); len(favorites) != 0 {
+		t.Fatalf("favorite without label should be ignored, got %+v", favorites)
 	}
 }
 

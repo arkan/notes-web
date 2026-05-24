@@ -513,7 +513,7 @@ func TestMarkdownFilesSkipHiddenDirectories(t *testing.T) {
 	if err := os.WriteFile(configuredHidden, []byte("# Config Hidden\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - Areas/Daily Briefings\nhidden:\n  - Private\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Daily Briefings\nhidden:\n  - Private\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range v.MarkdownFiles() {
