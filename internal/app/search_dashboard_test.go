@@ -607,7 +607,7 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.WriteString("- [ ] Pay invoice 📅 2026-05-20 <!-- tid:today123 -->\n- [ ] Plan trip 📅 2026-06-01 <!-- tid:future123 -->\n- [ ] Read later <!-- tid:nodate123 -->\n")
+	_, err = f.WriteString("- [ ] Pay invoice #admin 📅 2026-05-20 <!-- tid:today123 -->\n- [ ] Plan trip #travel 📅 2026-06-01 <!-- tid:future123 -->\n- [ ] Read later #admin <!-- tid:nodate123 -->\n")
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
@@ -634,6 +634,9 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 	if len(board.Done) != 1 || board.Done[0].ID != "149d256b" {
 		t.Fatalf("unexpected done tasks: %+v", board.Done)
 	}
+	if len(board.Tags) != 2 || board.Tags[0].Name != "admin" || board.Tags[0].Count != 2 || board.Tags[1].Name != "travel" || board.Tags[1].Count != 1 {
+		t.Fatalf("unexpected TODO tag list: %+v", board.Tags)
+	}
 
 	s := NewServer(v, "", "")
 	w := httptest.NewRecorder()
@@ -655,6 +658,10 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 		`<section class="todo-section done"`,
 		`<h2 id="todo-done">Done</h2><span class="count">`,
 		`Buy dog food`,
+		`data-todo-tag-list`,
+		`data-todo-tag-value="admin"`,
+		`#admin`,
+		`data-todo-tag-value="travel"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing TODO view markup %q in:\n%s", want, body)

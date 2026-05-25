@@ -398,12 +398,18 @@ func sameDate(a, b time.Time) bool {
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
+type TaskTag struct {
+	Name  string
+	Count int
+}
+
 type TaskBoard struct {
 	Overdue  []TaskItem
 	Today    []TaskItem
 	Upcoming []TaskItem
 	NoDate   []TaskItem
 	Done     []TaskItem
+	Tags     []TaskTag
 }
 
 func (b TaskBoard) OpenCount() int {
@@ -420,7 +426,16 @@ func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 		return TaskBoard{}, err
 	}
 	board := TaskBoard{}
+	tagCounts := map[string]int{}
 	for _, task := range tasks {
+		seenTags := map[string]bool{}
+		for _, tag := range task.Tags {
+			if tag == "" || seenTags[tag] {
+				continue
+			}
+			seenTags[tag] = true
+			tagCounts[tag]++
+		}
 		task.DateClass = task.DueClass(today)
 		switch {
 		case task.Completed:
@@ -435,6 +450,12 @@ func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 			board.Upcoming = append(board.Upcoming, task)
 		}
 	}
+	for tag, count := range tagCounts {
+		board.Tags = append(board.Tags, TaskTag{Name: tag, Count: count})
+	}
+	sort.Slice(board.Tags, func(i, j int) bool {
+		return board.Tags[i].Name < board.Tags[j].Name
+	})
 	sort.SliceStable(board.Done, func(i, j int) bool {
 		if board.Done[i].Done != board.Done[j].Done {
 			if board.Done[i].Done == "" {

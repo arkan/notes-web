@@ -402,6 +402,18 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 	r = httptest.NewRequest("GET", "/_static/app.js", nil)
 	s.ServeHTTP(w, r)
 	js := w.Body.String()
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`.task-row[hidden]{display:none!important}`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing TODO hidden-row CSS %q in:\n%s", want, css)
+		}
+	}
+
 	for _, want := range []string{
 		`const panelStateStorageKey = 'notes-web:panel-open';`,
 		`function restorePanelState()`,
@@ -413,6 +425,17 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 		`readTodoFilterState()`,
 		`writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) })`,
 		`restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone })`,
+		`data-todo-tag-list`,
+		`syncTodoTagList(selectedTag)`,
+		`updateTodoTagCounts(rows, { q, selectedPriority, selectedDate, hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked), today })`,
+		`countTodoTags(rows, filters)`,
+		`button.querySelector('span').textContent = String(counts.get(value) || 0)`,
+		`button.hidden = count === 0`,
+		`option.hidden = count === 0`,
+		`option.disabled = count === 0`,
+		`option.textContent = '#' + option.value + ' (' + String(counts.get(option.value) || 0) + ')'`,
+		`updateTodoSectionCounts(sections)`,
+		`section.querySelectorAll('.task-row:not([hidden])').length`,
 		`data-todo-search`,
 		`data-todo-filter="tag"`,
 		`data-todo-hide-nodate`,

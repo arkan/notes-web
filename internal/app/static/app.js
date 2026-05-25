@@ -312,36 +312,43 @@ function initTodoFilters() {
   const group = shell.querySelector('[data-todo-filter="group"]');
   const hideNoDate = shell.querySelector('[data-todo-hide-nodate]');
   const hideDone = shell.querySelector('[data-todo-hide-done]');
+  const tagList = shell.querySelector('[data-todo-tag-list]');
   const rows = Array.from(shell.querySelectorAll('.task-row'));
   populateTodoSelect(tag, uniqueTodoValues(rows.flatMap((row) => (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean))), 'All tags', (value) => '#' + value);
   restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone });
   function persistTodoFilters() {
     writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) });
   }
+  function syncTodoTagList(selectedTag) {
+    tagList?.querySelectorAll('[data-todo-tag-value]').forEach((button) => {
+      const active = button.dataset.todoTagValue === selectedTag;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
   function apply() {
     const q = (search?.value || '').trim().toLowerCase();
     const selectedTag = tag?.value || '';
+    syncTodoTagList(selectedTag);
     const selectedPriority = priority?.value || '';
     const selectedDate = date?.value || '';
     const today = new URLSearchParams(location.search).get('today') || new Date().toISOString().slice(0, 10);
+    updateTodoTagCounts(rows, { q, selectedPriority, selectedDate, hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked), today });
     rows.forEach((row) => {
-      const tags = (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean);
-      const due = row.dataset.due || '';
-      const isNoDate = !due;
-      const isDone = row.classList.contains('completed') || Boolean(row.closest('.done'));
-      const matchesSearch = !q || row.textContent.toLowerCase().includes(q);
-      const matchesTag = !selectedTag || tags.includes(selectedTag);
-      const matchesPriority = !selectedPriority || row.dataset.priority === selectedPriority;
-      const matchesDate = !selectedDate || todoDateGroup(due, today) === selectedDate.toLowerCase().replace(' ', '-');
-      const matchesNoDate = !hideNoDate?.checked || !isNoDate || isDone;
-      const matchesDone = !hideDone?.checked || !isDone;
-      const visible = matchesSearch && matchesTag && matchesPriority && matchesDate && matchesNoDate && matchesDone;
+      const visible = todoRowMatchesFilters(row, { q, selectedTag, selectedPriority, selectedDate, hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked), today }, true);
       row.hidden = !visible;
       row.dataset.todoVisible = String(visible);
     });
     renderTodoGroupedView(shell, rows, group?.value || 'Due date');
   }
   search?.addEventListener('input', apply);
+  tagList?.addEventListener('click', (ev) => {
+    const button = ev.target.closest('[data-todo-tag-value]');
+    if (!button || !tagList.contains(button)) return;
+    if (tag) tag.value = button.dataset.todoTagValue || '';
+    persistTodoFilters();
+    apply();
+  });
   [tag, priority, date, group, hideNoDate, hideDone].forEach((el) => {
     el?.addEventListener('input', () => { persistTodoFilters(); apply(); });
     el?.addEventListener('change', () => { persistTodoFilters(); apply(); });
@@ -353,8 +360,59 @@ function uniqueTodoValues(values) {
 }
 function populateTodoSelect(select, values, emptyLabel, renderLabel = (value) => value) {
   if (!select || select.dataset.populated === 'true') return;
+  if (select.options.length > 1) {
+    select.dataset.populated = 'true';
+    return;
+  }
   select.innerHTML = '<option value="">' + escapeHTML(emptyLabel) + '</option>' + values.map((value) => '<option value="' + escapeHTML(value) + '">' + escapeHTML(renderLabel(value)) + '</option>').join('');
   select.dataset.populated = 'true';
+}
+function todoRowTags(row) {
+  return (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean);
+}
+function todoRowMatchesFilters(row, filters, includeTag = true) {
+  const tags = todoRowTags(row);
+  const due = row.dataset.due || '';
+  const isNoDate = !due;
+  const isDone = row.classList.contains('completed') || Boolean(row.closest('.done'));
+  const matchesSearch = !filters.q || row.textContent.toLowerCase().includes(filters.q);
+  const matchesTag = !includeTag || !filters.selectedTag || tags.includes(filters.selectedTag);
+  const matchesPriority = !filters.selectedPriority || row.dataset.priority === filters.selectedPriority;
+  const matchesDate = !filters.selectedDate || todoDateGroup(due, filters.today) === filters.selectedDate.toLowerCase().replace(' ', '-');
+  const matchesNoDate = !filters.hideNoDate || !isNoDate || isDone;
+  const matchesDone = !filters.hideDone || !isDone;
+  return matchesSearch && matchesTag && matchesPriority && matchesDate && matchesNoDate && matchesDone;
+}
+function countTodoTags(rows, filters) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    if (!todoRowMatchesFilters(row, filters, false)) return;
+    new Set(todoRowTags(row)).forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+  });
+  return counts;
+}
+function updateTodoTagCounts(rows, filters) {
+  const shell = rows[0]?.closest('.todo-shell') || document;
+  const counts = countTodoTags(rows, filters);
+  const total = rows.filter((row) => todoRowMatchesFilters(row, filters, false)).length;
+  shell.querySelectorAll('[data-todo-tag-value]').forEach((button) => {
+    const value = button.dataset.todoTagValue || '';
+    if (!value) {
+      button.hidden = false;
+      button.querySelector('span').textContent = String(total);
+      return;
+    }
+    const count = counts.get(value) || 0;
+    button.hidden = count === 0;
+    button.querySelector('span').textContent = String(counts.get(value) || 0);
+  });
+  shell.querySelectorAll('[data-todo-filter="tag"] option').forEach((option) => {
+    if (!option.value) return;
+    const count = counts.get(option.value) || 0;
+    option.hidden = count === 0;
+    option.disabled = count === 0;
+    option.textContent = '#' + option.value + ' (' + String(counts.get(option.value) || 0) + ')';
+  });
 }
 function todoDateGroup(due, today) {
   if (!due) return 'no-date';
@@ -380,6 +438,7 @@ function renderTodoGroupedView(shell, rows, mode) {
       const hasRows = Boolean(section.querySelector('.task-row'));
       section.hidden = hasRows && !hasVisibleRows;
     });
+    updateTodoSectionCounts(sections);
     sortTodoRows(shell, mode);
     return;
   }
@@ -420,6 +479,12 @@ function renderTodoGroupedView(shell, rows, mode) {
     dynamic.appendChild(section);
   });
   dynamic.hidden = false;
+}
+function updateTodoSectionCounts(sections) {
+  sections.forEach((section) => {
+    const count = section.querySelector('.todo-section-header .count');
+    if (count) count.textContent = String(section.querySelectorAll('.task-row:not([hidden])').length);
+  });
 }
 function todoGroupKey(row, mode) {
   if (mode === 'Priority') return row.dataset.priority && row.dataset.priority !== '—' ? row.dataset.priority : 'No priority';
