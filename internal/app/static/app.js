@@ -80,16 +80,21 @@ function renderPalette(query) {
   if (!results) return;
   if (!paletteItems.length) {
     paletteMatches = [];
-    results.innerHTML = paletteLoadError ? '<p class="palette-empty empty-state">Unable to load search results.</p>' : '<p class="palette-empty empty-state">Loading…</p>';
+    results.setAttribute('aria-busy', String(!paletteLoadError));
+    results.innerHTML = paletteLoadError ? renderPaletteState('error', 'Unable to load search results.', 'Check the server, then reopen search.') : renderPaletteState('loading', 'Loading…', 'Preparing notes, tags, and favorites.');
     return;
   }
+  results.setAttribute('aria-busy', 'false');
   const q = (query || '').trim().toLowerCase();
   paletteMatches = paletteItems.filter((item) => {
     const haystack = [item.title, item.path, item.kind].filter(Boolean).join(' ').toLowerCase();
     return !q || haystack.includes(q);
   }).slice(0, 30);
   if (paletteSelectedIndex >= paletteMatches.length) paletteSelectedIndex = 0;
-  results.innerHTML = paletteMatches.map((item, index) => '<button type="button" role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title || item.path || item.url || 'Untitled') + '</strong><small>' + escapeHTML(item.path || item.url || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind || 'item') + '</span></button>').join('') || '<p class="palette-empty empty-state">No results.</p>';
+  results.innerHTML = paletteMatches.map((item, index) => '<button type="button" role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title || item.path || item.url || 'Untitled') + '</strong><small>' + escapeHTML(item.path || item.url || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind || 'item') + '</span></button>').join('') || renderPaletteState('empty', 'No results.', 'Try a note title, tag, or favorite.');
+}
+function renderPaletteState(kind, title, detail) {
+  return '<div class="palette-empty empty-state palette-state palette-state-' + kind + '" role="status"><strong>' + escapeHTML(title) + '</strong><small>' + escapeHTML(detail) + '</small><span class="palette-state-rule" aria-hidden="true"></span></div>';
 }
 function openPaletteMatch(index) {
   const item = paletteMatches[index];

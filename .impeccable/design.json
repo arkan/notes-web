@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-25T00:00:00Z",
+  "title": "Design System: Notes Web",
+  "extensions": {
+    "colorMeta": {
+      "parchment": {
+        "role": "neutral",
+        "displayName": "Parchment",
+        "canonical": "#f7f5ef",
+        "tonalRamp": ["#27231d", "#5a5147", "#786f63", "#b9ad9b", "#e2dccc", "#f1eee6", "#f7f5ef", "#fffdfa"]
+      },
+      "desk-paper": {
+        "role": "neutral",
+        "displayName": "Desk Paper",
+        "canonical": "#fffdfa",
+        "tonalRamp": ["#27231d", "#5a5147", "#786f63", "#c9beaa", "#e2dccc", "#f7f5ef", "#fff8e8", "#fffdfa"]
+      },
+      "fresh-ink": {
+        "role": "neutral",
+        "displayName": "Fresh Ink",
+        "canonical": "#27231d",
+        "tonalRamp": ["#17130f", "#27231d", "#3f382f", "#5a5147", "#786f63", "#b9ad9b", "#e2dccc", "#f7f5ef"]
+      },
+      "faded-marginalia": {
+        "role": "neutral",
+        "displayName": "Faded Marginalia",
+        "canonical": "#786f63",
+        "tonalRamp": ["#27231d", "#3f382f", "#5a5147", "#786f63", "#9d9284", "#b9ad9b", "#e2dccc", "#f7f5ef"]
+      },
+      "pressed-fold": {
+        "role": "neutral",
+        "displayName": "Pressed Fold",
+        "canonical": "#e2dccc",
+        "tonalRamp": ["#27231d", "#5a5147", "#786f63", "#b9ad9b", "#d4cbb8", "#e2dccc", "#f1eee6", "#f7f5ef"]
+      },
+      "violet-thread": {
+        "role": "primary",
+        "displayName": "Violet Thread",
+        "canonical": "#6b5cff",
+        "tonalRamp": ["#1c145f", "#2f23a6", "#3d32c2", "#6b5cff", "#9b8cff", "#d4ceff", "#efecff", "#faf8ff"]
+      },
+      "deep-violet-thread": {
+        "role": "primary",
+        "displayName": "Deep Violet Thread",
+        "canonical": "#3d32c2",
+        "tonalRamp": ["#1c145f", "#2f23a6", "#3d32c2", "#5c4de0", "#6b5cff", "#9b8cff", "#d4ceff", "#efecff"]
+      },
+      "washed-violet": {
+        "role": "primary",
+        "displayName": "Washed Violet",
+        "canonical": "#efecff",
+        "tonalRamp": ["#1c145f", "#2f23a6", "#3d32c2", "#6b5cff", "#9b8cff", "#d4ceff", "#efecff", "#faf8ff"]
+      },
+      "workbench-ash-inline": {
+        "role": "neutral",
+        "displayName": "Workbench Ash Inline",
+        "canonical": "#eee9dc",
+        "tonalRamp": ["#27231d", "#5a5147", "#786f63", "#b9ad9b", "#d9d1c0", "#eee9dc", "#f7f5ef", "#fffdfa"]
+      },
+      "workbench-ash-block": {
+        "role": "neutral",
+        "displayName": "Workbench Ash Block",
+        "canonical": "#f1eee6",
+        "tonalRamp": ["#27231d", "#5a5147", "#786f63", "#b9ad9b", "#d9d1c0", "#eee9dc", "#f1eee6", "#fffdfa"]
+      },
+      "red-wax": {
+        "role": "secondary",
+        "displayName": "Red Wax",
+        "canonical": "#b54747",
+        "tonalRamp": ["#4a1111", "#7f2424", "#b54747", "#d96b6b", "#ff8787", "#ffc9c9", "#ffe3e3", "#fff5f5"]
+      },
+      "amber-note": {
+        "role": "secondary",
+        "displayName": "Amber Note",
+        "canonical": "#b76e00",
+        "tonalRamp": ["#4f2f00", "#7a4900", "#b76e00", "#e09113", "#ffc078", "#ffe0b2", "#fff3df", "#fffaf0"]
+      },
+      "moss-mark": {
+        "role": "secondary",
+        "displayName": "Moss Mark",
+        "canonical": "#2b8a3e",
+        "tonalRamp": ["#0f3d1a", "#1b5e2a", "#2b8a3e", "#45b55b", "#69db7c", "#b2f2bb", "#ebfbee", "#f8fff9"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page, note, folder, and dashboard titles."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Brand mark and major section anchors."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Cards, search results, note previews, and modules."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Long-form note reading and normal interface text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Toolbar labels, eyebrows, dense metadata, and calendar labels."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Inline code, fenced blocks, task IDs, and technical fragments."
+      }
+    },
+    "shadows": [
+      {
+        "name": "surface-hairline",
+        "value": "0 1px 0 rgba(39, 35, 29, 0.08)",
+        "purpose": "Nearly flat separation for buttons and quiet cards."
+      },
+      {
+        "name": "soft-card",
+        "value": "0 2px 10px rgba(39, 35, 29, 0.08)",
+        "purpose": "Low elevation for cards and task groups."
+      },
+      {
+        "name": "command-lift",
+        "value": "0 24px 80px rgba(17, 19, 26, 0.34)",
+        "purpose": "Temporary elevation for command palette and settings dialogs."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "160ms ease",
+        "purpose": "Default color, border, shadow, opacity, and transform transitions."
+      },
+      {
+        "name": "palette-fade",
+        "value": "120ms ease",
+        "purpose": "Overlay fade for command palette entry."
+      },
+      {
+        "name": "menu-pop",
+        "value": "100ms ease",
+        "purpose": "Small menu reveal feedback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide-dashboard",
+        "value": "1100px"
+      },
+      {
+        "name": "home-stack",
+        "value": "900px"
+      },
+      {
+        "name": "sidebar-drawer",
+        "value": "850px"
+      },
+      {
+        "name": "compact-mobile",
+        "value": "640px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action button with Violet Thread fill and compact product spacing.",
+      "html": "<button class=\"ds-btn-primary\">Open note</button>",
+      "css": ".ds-btn-primary { background: var(--accent, #6b5cff); color: var(--surface, #fffdfa); border: 1px solid var(--accent, #6b5cff); border-radius: var(--radius-md, 12px); padding: 8px 12px; font: 700 14px ui-sans-serif, system-ui, sans-serif; transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease; box-shadow: 0 10px 30px rgba(61, 50, 194, 0.18); } .ds-btn-primary:hover { transform: translateY(-1px); filter: brightness(1.05); } .ds-btn-primary:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent, #6b5cff) 32%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Quiet utility button for secondary actions and toolbar controls.",
+      "html": "<button class=\"ds-btn-default\">Copy link</button>",
+      "css": ".ds-btn-default { background: var(--surface, #fffdfa); color: var(--ink, #27231d); border: 1px solid var(--line, #e2dccc); border-radius: var(--radius-md, 12px); padding: 8px 12px; font: 650 14px ui-sans-serif, system-ui, sans-serif; transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease; box-shadow: 0 1px 0 rgba(39, 35, 29, 0.08); } .ds-btn-default:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(39, 35, 29, 0.08); } .ds-btn-default:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent, #6b5cff) 28%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Tag Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Washed Violet metadata chip for tags, filters, and compact task context.",
+      "html": "<span class=\"ds-chip\">#project</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-pill, 999px); background: var(--soft, #efecff); color: var(--accent-ink, #3d32c2); font: 700 14px ui-sans-serif, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "search-input",
+      "description": "Retrieval-first text field with warm surface and violet focus ring.",
+      "html": "<input class=\"ds-search\" value=\"tag:project\" aria-label=\"Search notes\" />",
+      "css": ".ds-search { width: 100%; box-sizing: border-box; background: var(--surface, #fffdfa); color: var(--ink, #27231d); border: 1px solid var(--line, #e2dccc); border-radius: 10px; padding: 10px 12px; font: 400 18px ui-sans-serif, system-ui, sans-serif; transition: border-color 160ms ease, box-shadow 160ms ease; } .ds-search:focus-visible { outline: none; border-color: var(--accent, #6b5cff); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6b5cff) 22%, transparent); }"
+    },
+    {
+      "name": "Content Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Warm paper module for search results, notes, diagnostics, and dashboard groups.",
+      "html": "<article class=\"ds-card\"><strong>Daily note</strong><p>Calm density for reading, tasks, and retrieval.</p></article>",
+      "css": ".ds-card { background: var(--surface, #fffdfa); color: var(--ink, #27231d); border: 1px solid var(--line, #e2dccc); border-radius: var(--radius-lg, 18px); padding: 20px; box-shadow: 0 2px 10px rgba(39, 35, 29, 0.08); font: 400 15px/1.55 ui-sans-serif, system-ui, sans-serif; } .ds-card strong { display: block; font-size: 18px; line-height: 1.3; margin-bottom: 8px; } .ds-card p { margin: 0; color: var(--muted, #786f63); }"
+    },
+    {
+      "name": "Command Palette Row",
+      "kind": "nav",
+      "refersTo": "palette-panel",
+      "description": "Keyboard navigation row with selected state carried by Washed Violet.",
+      "html": "<div class=\"ds-palette-row\"><span>Open today's note</span><kbd>Enter</kbd></div>",
+      "css": ".ds-palette-row { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 13px 16px; background: var(--soft, #efecff); color: var(--ink, #27231d); border-radius: 12px; font: 650 15px ui-sans-serif, system-ui, sans-serif; } .ds-palette-row kbd { color: var(--muted, #786f63); font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace; }"
+    },
+    {
+      "name": "Task Row",
+      "kind": "custom",
+      "refersTo": "task-row",
+      "description": "Dense task row with checkbox, priority, title, and metadata.",
+      "html": "<div class=\"ds-task\"><span class=\"ds-task-check\"></span><span class=\"ds-task-priority\">P1</span><span class=\"ds-task-title\">Review broken links</span></div>",
+      "css": ".ds-task { display: grid; grid-template-columns: 22px 38px minmax(0, 1fr); gap: 10px; align-items: center; min-height: 48px; padding: 9px 12px; background: var(--surface, #fffdfa); color: var(--ink, #27231d); border: 1px solid var(--line, #e2dccc); border-radius: 16px; font: 650 15px ui-sans-serif, system-ui, sans-serif; } .ds-task-check { width: 18px; height: 18px; border: 1.5px solid var(--line, #e2dccc); border-radius: 6px; } .ds-task-priority { display: inline-flex; align-items: center; justify-content: center; height: 22px; border-radius: 8px; background: var(--danger, #b54747); color: var(--surface, #fffdfa); font: 800 11px ui-sans-serif, system-ui, sans-serif; } .ds-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    },
+    {
+      "name": "Code Block",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "Matte technical block that stays integrated with the reading surface.",
+      "html": "<pre class=\"ds-code\"><code>notes-web --vault ~/notes</code></pre>",
+      "css": ".ds-code { overflow: auto; margin: 0; padding: 14px; border-radius: var(--radius-md, 12px); background: var(--pre, #f1eee6); color: var(--ink, #27231d); font: 400 14px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Operative Notebook",
+    "overview": "Notes Web should feel like an operative notebook for a private vault: calm enough for long reading, precise enough for maintenance, and fast enough that retrieval feels almost physical. The interface is not neutral. It is personal-first, open source, keyboard-native, and intentionally opinionated. The system uses warm paper tones, fresh ink contrast, and a single violet thread for active states, commands, focus, and selected navigation. Density is allowed because the product is a real tool, but every dense surface must remain quiet, legible, and purposeful.",
+    "keyCharacteristics": [
+      "Warm, paper-led product UI with strong reading comfort.",
+      "Restrained accent use: violet marks action, focus, selection, and command flow.",
+      "Tonal layering before shadow.",
+      "Keyboard-first affordances with visible focus and predictable states.",
+      "Personal craft made reusable through explicit tokens and rules."
+    ],
+    "rules": [
+      {
+        "name": "The Violet Thread Rule",
+        "body": "Violet is for orientation and action only: current location, command flow, focus, selected filters, and primary actions. If violet appears as ornament, remove it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Warm Neutral Rule",
+        "body": "Use tinted neutrals for every background and text layer. Pure black and pure white are forbidden in new UI work.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Restraint Rule",
+        "body": "Red Wax, Amber Note, and Moss Mark are state colors, not category colors. Do not decorate dashboards with them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Tool Rule",
+        "body": "Use the system sans for product UI. Do not introduce display fonts for labels, buttons, tables, task rows, or navigation.",
+        "section": "typography"
+      },
+      {
+        "name": "The Reading Breath Rule",
+        "body": "Note content earns extra line-height. Dense product modules can compress, but prose should stay comfortable.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Until Invoked Rule",
+        "body": "Resting surfaces are flat. Shadows appear when an element is actionable, hovered, opened, or temporarily above the vault.",
+        "section": "elevation"
+      },
+      {
+        "name": "The No Glass Rule",
+        "body": "Backdrop blur may support a modal mode, but glassmorphism is forbidden as a decorative default.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep Notes Web product-first: retrieval, reading, tasks, and diagnostics beat decorative composition.",
+      "Do use Violet Thread only for orientation, action, focus, and selected states.",
+      "Do preserve Calm Density: information-rich modules are allowed when spacing, hierarchy, and labels make them scannable.",
+      "Do design keyboard-first states for buttons, tree items, command palette rows, task menus, and filters.",
+      "Do make diagnostics feel like maintenance, not alarm: broken links and orphans should be clear without turning the page into an error wall.",
+      "Do keep personal-first choices explicit so open source users can adapt them without erasing the point of view."
+    ],
+    "donts": [
+      "Don't make Notes Web look like a cold documentation wiki that makes personal notes feel impersonal.",
+      "Don't add heavy app chrome, decorative motion, unnecessary blur, or framework-like visual bulk.",
+      "Don't use generic SaaS dashboard patterns: repeated metric cards, hero-stat layouts, gradient accents, or ornamental panels.",
+      "Don't copy Obsidian's desktop app. Serve the web reading and retrieval context instead.",
+      "Don't neutralize the product until it loses its personal-first point of view.",
+      "Don't add colored side-stripe borders to new callouts, cards, list items, or alerts. Use full borders, tinted panels, icons, or title treatment.",
+      "Don't use gradient text, glassmorphism as decoration, pure black, or pure white in new UI work."
+    ]
+  }
+}
