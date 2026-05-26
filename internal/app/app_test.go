@@ -408,6 +408,7 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 	css := w.Body.String()
 	for _, want := range []string{
 		`.task-row[hidden]{display:none!important}`,
+		`.todo-toolbar label:not(.todo-search):not(.todo-filter-tag):not(.toggle){display:none}`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("missing TODO hidden-row CSS %q in:\n%s", want, css)
@@ -425,12 +426,8 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 		`readTodoFilterState()`,
 		`writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) })`,
 		`restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone })`,
-		`data-todo-tag-list`,
-		`syncTodoTagList(selectedTag)`,
 		`updateTodoTagCounts(rows, { q, selectedPriority, selectedDate, hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked), today })`,
 		`countTodoTags(rows, filters)`,
-		`button.querySelector('span').textContent = String(counts.get(value) || 0)`,
-		`button.hidden = count === 0`,
 		`option.hidden = count === 0`,
 		`option.disabled = count === 0`,
 		`option.textContent = '#' + option.value + ' (' + String(counts.get(option.value) || 0) + ')'`,

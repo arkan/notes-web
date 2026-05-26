@@ -658,13 +658,15 @@ func TestTODOViewGroupsTasksByDueDateAndStatus(t *testing.T) {
 		`<section class="todo-section done"`,
 		`<h2 id="todo-done">Done</h2><span class="count">`,
 		`Buy dog food`,
-		`data-todo-tag-list`,
-		`data-todo-tag-value="admin"`,
 		`#admin`,
-		`data-todo-tag-value="travel"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing TODO view markup %q in:\n%s", want, body)
+		}
+	}
+	for _, removed := range []string{`data-todo-tag-list`, `data-todo-tag-value=`} {
+		if strings.Contains(body, removed) {
+			t.Fatalf("TODO tag cloud markup should be removed, found %q in:\n%s", removed, body)
 		}
 	}
 }

@@ -312,24 +312,15 @@ function initTodoFilters() {
   const group = shell.querySelector('[data-todo-filter="group"]');
   const hideNoDate = shell.querySelector('[data-todo-hide-nodate]');
   const hideDone = shell.querySelector('[data-todo-hide-done]');
-  const tagList = shell.querySelector('[data-todo-tag-list]');
   const rows = Array.from(shell.querySelectorAll('.task-row'));
   populateTodoSelect(tag, uniqueTodoValues(rows.flatMap((row) => (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean))), 'All tags', (value) => '#' + value);
   restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone });
   function persistTodoFilters() {
     writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) });
   }
-  function syncTodoTagList(selectedTag) {
-    tagList?.querySelectorAll('[data-todo-tag-value]').forEach((button) => {
-      const active = button.dataset.todoTagValue === selectedTag;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
-    });
-  }
   function apply() {
     const q = (search?.value || '').trim().toLowerCase();
     const selectedTag = tag?.value || '';
-    syncTodoTagList(selectedTag);
     const selectedPriority = priority?.value || '';
     const selectedDate = date?.value || '';
     const today = new URLSearchParams(location.search).get('today') || new Date().toISOString().slice(0, 10);
@@ -342,13 +333,6 @@ function initTodoFilters() {
     renderTodoGroupedView(shell, rows, group?.value || 'Due date');
   }
   search?.addEventListener('input', apply);
-  tagList?.addEventListener('click', (ev) => {
-    const button = ev.target.closest('[data-todo-tag-value]');
-    if (!button || !tagList.contains(button)) return;
-    if (tag) tag.value = button.dataset.todoTagValue || '';
-    persistTodoFilters();
-    apply();
-  });
   [tag, priority, date, group, hideNoDate, hideDone].forEach((el) => {
     el?.addEventListener('input', () => { persistTodoFilters(); apply(); });
     el?.addEventListener('change', () => { persistTodoFilters(); apply(); });
@@ -394,18 +378,6 @@ function countTodoTags(rows, filters) {
 function updateTodoTagCounts(rows, filters) {
   const shell = rows[0]?.closest('.todo-shell') || document;
   const counts = countTodoTags(rows, filters);
-  const total = rows.filter((row) => todoRowMatchesFilters(row, filters, false)).length;
-  shell.querySelectorAll('[data-todo-tag-value]').forEach((button) => {
-    const value = button.dataset.todoTagValue || '';
-    if (!value) {
-      button.hidden = false;
-      button.querySelector('span').textContent = String(total);
-      return;
-    }
-    const count = counts.get(value) || 0;
-    button.hidden = count === 0;
-    button.querySelector('span').textContent = String(counts.get(value) || 0);
-  });
   shell.querySelectorAll('[data-todo-filter="tag"] option').forEach((option) => {
     if (!option.value) return;
     const count = counts.get(option.value) || 0;
