@@ -452,6 +452,16 @@ func TestNotePanelsAreCollapsibleAndPersistTheirOpenState(t *testing.T) {
 			t.Fatalf("missing panel localStorage JS %q in:\n%s", want, js)
 		}
 	}
+	for _, forbidden := range []string{
+		`function populateTodoSelect`,
+		`function uniqueTodoValues`,
+		`select.options.length > 1`,
+		`select.dataset.populated`,
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("TODO tag filters must not keep legacy client-side select population compatibility %q in:\n%s", forbidden, js)
+		}
+	}
 }
 
 func TestLinkPanelSummariesUseCompactInlineTypography(t *testing.T) {

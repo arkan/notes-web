@@ -313,7 +313,6 @@ function initTodoFilters() {
   const hideNoDate = shell.querySelector('[data-todo-hide-nodate]');
   const hideDone = shell.querySelector('[data-todo-hide-done]');
   const rows = Array.from(shell.querySelectorAll('.task-row'));
-  populateTodoSelect(tag, uniqueTodoValues(rows.flatMap((row) => (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean))), 'All tags', (value) => '#' + value);
   restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDone });
   function persistTodoFilters() {
     writeTodoFilterState({ tag: tag?.value || '', priority: priority?.value || '', date: date?.value || '', group: group?.value || 'Due date', hideNoDate: Boolean(hideNoDate?.checked), hideDone: Boolean(hideDone?.checked) });
@@ -338,18 +337,6 @@ function initTodoFilters() {
     el?.addEventListener('change', () => { persistTodoFilters(); apply(); });
   });
   apply();
-}
-function uniqueTodoValues(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-function populateTodoSelect(select, values, emptyLabel, renderLabel = (value) => value) {
-  if (!select || select.dataset.populated === 'true') return;
-  if (select.options.length > 1) {
-    select.dataset.populated = 'true';
-    return;
-  }
-  select.innerHTML = '<option value="">' + escapeHTML(emptyLabel) + '</option>' + values.map((value) => '<option value="' + escapeHTML(value) + '">' + escapeHTML(renderLabel(value)) + '</option>').join('');
-  select.dataset.populated = 'true';
 }
 function todoRowTags(row) {
   return (row.dataset.tags || '').trim().split(/\s+/).filter(Boolean);
