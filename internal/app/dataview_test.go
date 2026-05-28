@@ -44,8 +44,8 @@ func TestDataviewTableFromFolderSortsAndRendersFrontmatter(t *testing.T) {
 		`>Projet</th>`,
 		`>status</th>`,
 		`>Faits</th>`,
-		`href=\"/Projects/Alpha.md\"`,
-		`Alpha Project`,
+		`href=\"/Projects/Alpha.md\">Alpha</a>`,
+		`href=\"/Projects/Gamma.md\">Gamma</a>`,
 		`<td>active</td>`,
 		`<td class=\"number\">7</td>`,
 	} {
@@ -53,8 +53,11 @@ func TestDataviewTableFromFolderSortsAndRendersFrontmatter(t *testing.T) {
 			t.Fatalf("rendered dataview missing %q in:\n%s", want, html)
 		}
 	}
-	assertInOrder(t, html, "Alpha Project", "Gamma Project")
-	assertInOrder(t, html, "Gamma Project", "Beta Project")
+	if strings.Contains(html, `href=\"/Projects/Alpha.md\">Alpha Project</a>`) {
+		t.Fatalf("file.link should display file name, not frontmatter title:\n%s", html)
+	}
+	assertInOrder(t, html, ">Alpha</a>", ">Gamma</a>")
+	assertInOrder(t, html, ">Gamma</a>", ">Beta</a>")
 }
 
 func TestDataviewMultilineTableColumns(t *testing.T) {
@@ -64,7 +67,7 @@ func TestDataviewMultilineTableColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := NewRenderer(v).Render(n).HTML
-	for _, want := range []string{"Statut", "Note", "Projet", "Alpha Project", "Gamma Project"} {
+	for _, want := range []string{"Statut", "Note", "Projet", `href=\"/Projects/Alpha.md\">Alpha</a>`, `href=\"/Projects/Gamma.md\">Gamma</a>`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("multiline table missing %q in:\n%s", want, html)
 		}
@@ -82,7 +85,7 @@ WHERE status = "active" AND contains(file.tags, "project")
 SORT created DESC
 LIMIT 2`
 	html := string(RenderDataviewBlock(v, query))
-	for _, want := range []string{"Gamma Project", "Alpha Project", `<td class=\"number\">2</td>`, `<td>high</td>`, `<td>normal</td>`} {
+	for _, want := range []string{`href=\"/Projects/Gamma.md\">Gamma</a>`, `href=\"/Projects/Alpha.md\">Alpha</a>`, `<td class=\"number\">2</td>`, `<td>high</td>`, `<td>normal</td>`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("query result missing %q in:\n%s", want, html)
 		}
@@ -90,7 +93,7 @@ LIMIT 2`
 	if strings.Contains(html, "Beta Project") || strings.Contains(html, "Tagged Area") {
 		t.Fatalf("WHERE/LIMIT should exclude beta and tagged area:\n%s", html)
 	}
-	assertInOrder(t, html, "Gamma Project", "Alpha Project")
+	assertInOrder(t, html, ">Gamma</a>", ">Alpha</a>")
 }
 
 func TestDataviewListTaskGroupFlattenAndDiagnostics(t *testing.T) {
@@ -100,12 +103,12 @@ func TestDataviewListTaskGroupFlattenAndDiagnostics(t *testing.T) {
 FROM "Projects"
 WHERE status != "done"
 SORT file.name`))
-	for _, want := range []string{`class=\"dataview dataview-list\"`, "Alpha Project", "Gamma Project", "active"} {
+	for _, want := range []string{`class=\"dataview dataview-list\"`, `href=\"/Projects/Alpha.md\">Alpha</a>`, `href=\"/Projects/Gamma.md\">Gamma</a>`, "active"} {
 		if !strings.Contains(listHTML, want) {
 			t.Fatalf("LIST missing %q in:\n%s", want, listHTML)
 		}
 	}
-	if strings.Contains(listHTML, "Beta Project") {
+	if strings.Contains(listHTML, `href=\"/Projects/Beta.md\">Beta</a>`) {
 		t.Fatalf("LIST should exclude done project:\n%s", listHTML)
 	}
 
@@ -127,7 +130,7 @@ SORT due ASC`))
 FROM "Projects"
 GROUP BY area
 SORT key`))
-	for _, want := range []string{"Core", "Ops", "Alpha Project", "Beta Project", "Gamma Project", `<td class=\"number\">2</td>`, `<td class=\"number\">1</td>`} {
+	for _, want := range []string{"Core", "Ops", "Alpha, Beta", "Gamma", `<td class=\"number\">2</td>`, `<td class=\"number\">1</td>`} {
 		if !strings.Contains(groupHTML, want) {
 			t.Fatalf("GROUP BY missing %q in:\n%s", want, groupHTML)
 		}
@@ -138,7 +141,7 @@ FROM "Projects"
 FLATTEN aliases
 WHERE aliases != ""
 SORT aliases`))
-	for _, want := range []string{"A1", "Alpha", "Alpha Project"} {
+	for _, want := range []string{"A1", "Alpha", `href=\"/Projects/Alpha.md\">Alpha</a>`} {
 		if !strings.Contains(flattenHTML, want) {
 			t.Fatalf("FLATTEN missing %q in:\n%s", want, flattenHTML)
 		}
@@ -146,7 +149,7 @@ SORT aliases`))
 
 	errHTML := string(RenderDataviewBlock(v, `CALENDAR file.mtime
 FROM "Projects"`))
-	for _, want := range []string{`class=\"dataview dataview-calendar\"`, "Alpha Project", "Gamma Project"} {
+	for _, want := range []string{`class=\"dataview dataview-calendar\"`, `href=\"/Projects/Alpha.md\">Alpha</a>`, `href=\"/Projects/Gamma.md\">Gamma</a>`} {
 		if !strings.Contains(errHTML, want) {
 			t.Fatalf("CALENDAR render missing %q in:\n%s", want, errHTML)
 		}
@@ -164,8 +167,8 @@ LIMIT 1`))
 	if strings.Contains(html, "<script>") {
 		t.Fatalf("dataview output must escape frontmatter/title HTML:\n%s", html)
 	}
-	if !strings.Contains(html, "&lt;script&gt;alert(1)&lt;/script&gt;") {
-		t.Fatalf("escaped title missing in:\n%s", html)
+	if !strings.Contains(html, `href=\"/Projects/Evil.md\">Evil</a>`) {
+		t.Fatalf("file.link filename label missing in:\n%s", html)
 	}
 	if !strings.Contains(html, "2026-12-01") {
 		t.Fatalf("typed date value missing in:\n%s", html)
@@ -183,12 +186,12 @@ func TestDataviewSupportsInlineClausesDateArithmeticListLinkAndFileContent(t *te
 	}
 
 	statusHTML := string(RenderDataviewBlock(v, `TABLE file.link as "Projet", status AS "Statut" FROM "Projects" WHERE contains(list("active", "waiting"), status) SORT file.name`))
-	if !strings.Contains(statusHTML, "Alpha Project") || !strings.Contains(statusHTML, "Gamma Project") || strings.Contains(statusHTML, "Beta Project") {
+	if !strings.Contains(statusHTML, `href=\"/Projects/Alpha.md\">Alpha</a>`) || !strings.Contains(statusHTML, `href=\"/Projects/Gamma.md\">Gamma</a>`) || strings.Contains(statusHTML, `href=\"/Projects/Beta.md\">Beta</a>`) {
 		t.Fatalf("list() contains query mismatch:\n%s", statusHTML)
 	}
 
 	linkHTML := string(RenderDataviewBlock(v, `TABLE file.link as "Event", date FROM "Areas/Health/Events" WHERE contains(related, link("Kyste pilonidal"))`))
-	if !strings.Contains(linkHTML, "Recent Event") || strings.Contains(linkHTML, "Old Event") {
+	if !strings.Contains(linkHTML, `href=\"/Areas/Health/Events/Recent.md\">Recent</a>`) || strings.Contains(linkHTML, `href=\"/Areas/Health/Events/Old.md\">Old</a>`) {
 		t.Fatalf("link() contains query mismatch:\n%s", linkHTML)
 	}
 
@@ -205,14 +208,14 @@ func TestDataviewCalendarInlinksAndDiagnosticsEndpoint(t *testing.T) {
 
 	calHTML := string(RenderDataviewBlock(v, `CALENDAR created
 FROM "Projects"`))
-	for _, want := range []string{`class=\"dataview dataview-calendar\"`, "2026-05-01", "Alpha Project"} {
+	for _, want := range []string{`class=\"dataview dataview-calendar\"`, "2026-05-01", `href=\"/Projects/Alpha.md\">Alpha</a>`} {
 		if !strings.Contains(calHTML, want) {
 			t.Fatalf("CALENDAR missing %q in:\n%s", want, calHTML)
 		}
 	}
 
 	inlinksHTML := string(RenderDataviewBlock(v, `TABLE file.inlinks as "Inlinks" FROM "Projects" WHERE file.name = "Alpha"`))
-	if !strings.Contains(inlinksHTML, "Linked Project") {
+	if !strings.Contains(inlinksHTML, `href=\"/Projects/Linked.md\">Linked</a>`) {
 		t.Fatalf("file.inlinks should include backlinking note:\n%s", inlinksHTML)
 	}
 

@@ -336,7 +336,7 @@ func dataviewBaseData(v *Vault, idx *VaultIndex, meta NoteMeta) map[string]any {
 		}
 		for _, target := range other.OutgoingWikiLinks {
 			if target == stem || target == noExt || target == meta.RelPath || strings.TrimSuffix(target, filepath.Ext(target)) == noExt {
-				inlinks = append(inlinks, dataviewLink{URL: other.URL, Text: other.Title})
+				inlinks = append(inlinks, dataviewLink{URL: other.URL, Text: noteFileName(other)})
 				break
 			}
 		}
@@ -722,9 +722,9 @@ func evalRowsValue(r dataviewRow, expr string) any {
 func noteField(n NoteMeta, expr string) any {
 	switch expr {
 	case "file.link":
-		return dataviewLink{URL: n.URL, Text: n.Title}
+		return dataviewLink{URL: n.URL, Text: noteFileName(n)}
 	case "file.name":
-		return strings.TrimSuffix(filepath.Base(n.RelPath), filepath.Ext(n.RelPath))
+		return noteFileName(n)
 	case "file.path":
 		return n.RelPath
 	case "file.folder":
@@ -773,6 +773,10 @@ func taskField(t IndexedTask, expr string) (any, bool) {
 		return dataviewLink{URL: t.URL, Text: t.Path}, true
 	}
 	return nil, false
+}
+
+func noteFileName(n NoteMeta) string {
+	return strings.TrimSuffix(filepath.Base(n.RelPath), filepath.Ext(n.RelPath))
 }
 
 type dataviewLink struct{ URL, Text string }
