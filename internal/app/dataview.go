@@ -802,18 +802,18 @@ type dataviewLink struct{ URL, Text string }
 
 func renderDataviewTable(q dataviewQuery, rows []dataviewRow) template.HTML {
 	var b strings.Builder
-	b.WriteString(`<div class=\"dataview dataview-table-wrap\"><div class=\"dataview-controls\"><label class=\"dataview-filter-label\">Filter <input class=\"dataview-filter\" type=\"search\" data-dataview-filter placeholder=\"Filter table…\"></label><label class=\"dataview-page-size-label\">Rows <select data-dataview-page-size><option value=\"0\">All</option><option value=\"10\">10</option><option value=\"25\">25</option><option value=\"50\">50</option></select></label></div><table class=\"dataview-table\"><thead><tr>`)
+	b.WriteString(`<div class="dataview dataview-table-wrap"><div class="dataview-controls"><label class="dataview-filter-label">Filter <input class="dataview-filter" type="search" data-dataview-filter placeholder="Filter table…"></label><label class="dataview-page-size-label">Rows <select data-dataview-page-size><option value="0">All</option><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label></div><table class="dataview-table"><thead><tr>`)
 	cols := q.Columns
 	if len(cols) == 0 {
 		cols = []dataviewColumn{{Expr: "file.link", Label: "File"}}
 	}
 	for _, c := range cols {
-		b.WriteString(`<th scope=\"col\" data-dataview-sort aria-sort=\"none\">` + html.EscapeString(c.Label) + `</th>`)
+		b.WriteString(`<th scope="col" data-dataview-sort aria-sort="none">` + html.EscapeString(c.Label) + `</th>`)
 	}
 	b.WriteString(`</tr></thead><tbody>`)
 	for _, r := range rows {
 		if key, ok := r.Data["key"]; ok {
-			b.WriteString(`<tr class=\"dataview-group\"><th scope=\"row\" colspan=\"` + strconv.Itoa(len(cols)) + `\">` + html.EscapeString(displayPlain(key)) + `</th></tr>`)
+			b.WriteString(`<tr class="dataview-group"><th scope="row" colspan="` + strconv.Itoa(len(cols)) + `">` + html.EscapeString(displayPlain(key)) + `</th></tr>`)
 		}
 		b.WriteString(`<tr>`)
 		for _, c := range cols {
@@ -821,19 +821,19 @@ func renderDataviewTable(q dataviewQuery, rows []dataviewRow) template.HTML {
 		}
 		b.WriteString(`</tr>`)
 	}
-	b.WriteString(`</tbody></table><div class=\"dataview-pager\" data-dataview-pager aria-live=\"polite\"></div></div>`)
+	b.WriteString(`</tbody></table><div class="dataview-pager" data-dataview-pager aria-live="polite"></div></div>`)
 	return template.HTML(b.String())
 }
 func renderDataviewCell(v any) string {
 	cls := ""
 	if _, ok := toFloat(v); ok {
-		cls = ` class=\"number\"`
+		cls = ` class="number"`
 	}
 	return `<td` + cls + `>` + renderDataviewValue(v) + `</td>`
 }
 func renderDataviewList(q dataviewQuery, rows []dataviewRow) template.HTML {
 	var b strings.Builder
-	b.WriteString(`<ul class=\"dataview dataview-list\">`)
+	b.WriteString(`<ul class="dataview dataview-list">`)
 	for _, r := range rows {
 		label := ""
 		if r.Note != nil {
@@ -844,7 +844,7 @@ func renderDataviewList(q dataviewQuery, rows []dataviewRow) template.HTML {
 			if label == "" {
 				label = value
 			} else {
-				label += ` <span class=\"dataview-list-value\">` + value + `</span>`
+				label += ` <span class="dataview-list-value">` + value + `</span>`
 			}
 		}
 		if label == "" {
@@ -857,7 +857,7 @@ func renderDataviewList(q dataviewQuery, rows []dataviewRow) template.HTML {
 }
 func renderDataviewTasks(q dataviewQuery, rows []dataviewRow) template.HTML {
 	var b strings.Builder
-	b.WriteString(`<ul class=\"dataview dataview-tasks\">`)
+	b.WriteString(`<ul class="dataview dataview-tasks">`)
 	for _, r := range rows {
 		if r.Task == nil {
 			continue
@@ -867,14 +867,14 @@ func renderDataviewTasks(q dataviewQuery, rows []dataviewRow) template.HTML {
 		if t.Completed {
 			checked = " checked"
 		}
-		b.WriteString(`<li class=\"task-list-item\"><input type=\"checkbox\" disabled` + checked + `> ` + html.EscapeString(t.Text))
+		b.WriteString(`<li class="task-list-item"><input type="checkbox" disabled` + checked + `> ` + html.EscapeString(t.Text))
 		if t.Due != "" {
-			b.WriteString(` <span class=\"task-meta due-date\">Due ` + html.EscapeString(t.Due) + `</span>`)
+			b.WriteString(` <span class="task-meta due-date">Due ` + html.EscapeString(t.Due) + `</span>`)
 		}
 		if t.Priority != "" {
-			b.WriteString(` <span class=\"task-meta priority-meta\">Priority ` + html.EscapeString(t.Priority) + `</span>`)
+			b.WriteString(` <span class="task-meta priority-meta">Priority ` + html.EscapeString(t.Priority) + `</span>`)
 		}
-		b.WriteString(` <a href=\"` + html.EscapeString(t.URL) + `\">` + html.EscapeString(t.Path) + `</a></li>`)
+		b.WriteString(` <a href="` + html.EscapeString(t.URL) + `">` + html.EscapeString(t.Path) + `</a></li>`)
 	}
 	b.WriteString(`</ul>`)
 	return template.HTML(b.String())
@@ -899,12 +899,12 @@ func renderDataviewCalendar(q dataviewQuery, rows []dataviewRow) template.HTML {
 	}
 	sort.Strings(days)
 	var b strings.Builder
-	b.WriteString(`<div class=\"dataview dataview-calendar\">`)
+	b.WriteString(`<div class="dataview dataview-calendar">`)
 	if len(days) == 0 {
 		b.WriteString(`<p>Aucune date.</p>`)
 	}
 	for _, day := range days {
-		b.WriteString(`<section class=\"dataview-calendar-day\"><h4>` + html.EscapeString(day) + `</h4><ul>`)
+		b.WriteString(`<section class="dataview-calendar-day"><h4>` + html.EscapeString(day) + `</h4><ul>`)
 		for _, r := range byDay[day] {
 			if r.Note != nil {
 				b.WriteString(`<li>` + renderDataviewValue(noteField(*r.Note, "file.link")) + `</li>`)
@@ -919,7 +919,7 @@ func renderDataviewCalendar(q dataviewQuery, rows []dataviewRow) template.HTML {
 func renderDataviewValue(v any) string {
 	switch x := v.(type) {
 	case dataviewLink:
-		return `<a href=\"` + html.EscapeString(x.URL) + `\">` + html.EscapeString(x.Text) + `</a>`
+		return `<a href="` + html.EscapeString(x.URL) + `">` + html.EscapeString(x.Text) + `</a>`
 	case []any:
 		parts := []string{}
 		for _, i := range x {
@@ -960,7 +960,7 @@ func renderDataviewValue(v any) string {
 	}
 }
 func dataviewError(raw string, err error) template.HTML {
-	return template.HTML(`<div class=\"dataview-error\"><strong>Dataview non rendu</strong><p>` + html.EscapeString(err.Error()) + `</p><pre>` + html.EscapeString(raw) + `</pre></div>`)
+	return template.HTML(`<div class="dataview-error"><strong>Dataview non rendu</strong><p>` + html.EscapeString(err.Error()) + `</p><pre>` + html.EscapeString(raw) + `</pre></div>`)
 }
 
 func extractTasksForNote(v *Vault, meta NoteMeta) []IndexedTask {
