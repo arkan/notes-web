@@ -80,6 +80,7 @@ func decorateCodeBlocks(s string) string {
 
 func (r *Renderer) preprocess(s string) string {
 	s = preprocessDataviewBlocks(s, r.vault)
+	s = preprocessNotesMapBlocks(s, r.vault)
 	s = preprocessCallouts(s)
 	s = preprocessMermaid(s)
 	return wikiLinkRe.ReplaceAllStringFunc(s, func(m string) string {

@@ -559,8 +559,94 @@ function markCopied(el, label) {
   if (label) el.textContent = label;
   setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
 }
+function initNotesMaps() {
+  document.querySelectorAll('[data-notes-map]').forEach((el) => {
+    let data;
+    try { data = JSON.parse(el.getAttribute('data-notes-map') || '{}'); }
+    catch (err) { el.innerHTML = '<div class="notes-map-error">Unable to parse map data.</div>'; return; }
+    const points = Array.isArray(data.points) ? data.points : [];
+    if (!points.length) {
+      el.classList.add('notes-map-empty');
+      el.textContent = data.skippedMissingCoords ? 'No geocoded points found (' + data.skippedMissingCoords + ' skipped without coordinates).' : 'No map points found.';
+      return;
+    }
+    renderNotesMap(el, points, data.skippedMissingCoords || 0);
+  });
+}
+function renderNotesMap(el, points, skipped) {
+  const zoom = chooseMapZoom(points);
+  const center = mapCenter(points);
+  const size = {w: Math.max(320, el.clientWidth || 900), h: 420};
+  const centerPx = lonLatToPixel(center.lon, center.lat, zoom);
+  el.innerHTML = '<div class="notes-map-canvas" role="img" aria-label="Map with ' + points.length + ' note markers"></div><div class="notes-map-status"></div>';
+  const canvas = el.querySelector('.notes-map-canvas');
+  canvas.style.height = size.h + 'px';
+  renderMapTiles(canvas, centerPx, zoom, size);
+  const colors = {'en attente':'#f59f00','à relancer':'#e67700','a relancer':'#e67700','contactée':'#339af0','contacte':'#339af0','contacté':'#339af0','refusée':'#e03131','refusee':'#e03131','refusé':'#e03131','place':'#2f9e44','place obtenue':'#2f9e44','acceptée':'#2f9e44'};
+  points.forEach((point) => {
+    const px = lonLatToPixel(point.lon, point.lat, zoom);
+    const left = (size.w / 2) + (px.x - centerPx.x);
+    const top = (size.h / 2) + (px.y - centerPx.y);
+    const marker = document.createElement('button');
+    marker.type = 'button';
+    marker.className = 'notes-map-marker';
+    marker.style.left = left + 'px';
+    marker.style.top = top + 'px';
+    marker.style.setProperty('--marker-color', colors[String(point.colorValue || point.status || '').toLowerCase()] || '#6b5cff');
+    marker.setAttribute('aria-label', point.title || 'Map point');
+    marker.innerHTML = '<span></span>';
+    marker.addEventListener('click', () => showNotesMapPopup(canvas, point, left, top));
+    canvas.appendChild(marker);
+  });
+  const status = el.querySelector('.notes-map-status');
+  status.textContent = points.length + ' point' + (points.length > 1 ? 's' : '') + (skipped ? ' · ' + skipped + ' skipped without coordinates' : '');
+}
+function chooseMapZoom(points) {
+  if (points.length <= 1) return 13;
+  const lats = points.map(p => Number(p.lat)), lons = points.map(p => Number(p.lon));
+  const span = Math.max(Math.max(...lats) - Math.min(...lats), Math.max(...lons) - Math.min(...lons));
+  if (span > 1) return 8;
+  if (span > 0.4) return 10;
+  if (span > 0.12) return 11;
+  if (span > 0.04) return 12;
+  return 13;
+}
+function mapCenter(points) {
+  return {lat: points.reduce((sum, p) => sum + Number(p.lat), 0) / points.length, lon: points.reduce((sum, p) => sum + Number(p.lon), 0) / points.length};
+}
+function lonLatToPixel(lon, lat, zoom) {
+  const sin = Math.sin(Number(lat) * Math.PI / 180);
+  const scale = 256 * Math.pow(2, zoom);
+  return {x: (Number(lon) + 180) / 360 * scale, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale};
+}
+function renderMapTiles(canvas, centerPx, zoom, size) {
+  const startX = Math.floor((centerPx.x - size.w / 2) / 256);
+  const endX = Math.floor((centerPx.x + size.w / 2) / 256);
+  const startY = Math.floor((centerPx.y - size.h / 2) / 256);
+  const endY = Math.floor((centerPx.y + size.h / 2) / 256);
+  for (let x = startX; x <= endX; x++) for (let y = startY; y <= endY; y++) {
+    const img = document.createElement('img');
+    img.className = 'notes-map-tile';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = 'https://tile.openstreetmap.org/' + zoom + '/' + x + '/' + y + '.png';
+    img.style.left = (x * 256 - (centerPx.x - size.w / 2)) + 'px';
+    img.style.top = (y * 256 - (centerPx.y - size.h / 2)) + 'px';
+    canvas.appendChild(img);
+  }
+}
+function showNotesMapPopup(canvas, point, left, top) {
+  canvas.querySelector('.notes-map-popup')?.remove();
+  const popup = document.createElement('div');
+  popup.className = 'notes-map-popup';
+  popup.style.left = Math.max(12, Math.min(left + 12, canvas.clientWidth - 260)) + 'px';
+  popup.style.top = Math.max(12, top - 12) + 'px';
+  const bits = [point.subtitle, point.address, point.distanceHome ? 'Maison: ' + point.distanceHome : '', point.distanceNoorderpark ? 'Noorderpark: ' + point.distanceNoorderpark : ''].filter(Boolean);
+  popup.innerHTML = '<strong><a href="' + escapeHTML(point.url || '#') + '">' + escapeHTML(point.title || 'Untitled') + '</a></strong>' + bits.map(b => '<small>' + escapeHTML(b) + '</small>').join('') + (point.website ? '<a class="notes-map-popup-link" href="' + escapeHTML(point.website) + '">Website</a>' : '') + (point.mapUrl ? '<a class="notes-map-popup-link" href="' + escapeHTML(point.mapUrl) + '">Map</a>' : '');
+  canvas.appendChild(popup);
+}
 document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initTodoActions(); initTodoFilters();
-  initDataviewTables(); });
+  initDataviewTables(); initNotesMaps(); });
 document.addEventListener('click', async (ev) => {
   const codeCopy = ev.target.closest('[data-copy-code]');
   if (codeCopy) {
