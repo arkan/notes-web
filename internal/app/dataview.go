@@ -79,12 +79,25 @@ func RenderDataviewBlockWithIndex(v *Vault, idx *VaultIndex, raw string) templat
 
 func preprocessDataviewBlocks(s string, v *Vault) string {
 	re := regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
+	if !re.MatchString(s) {
+		return s
+	}
+	idx, err := v.BuildIndex()
+	if err != nil {
+		return re.ReplaceAllStringFunc(s, func(m string) string {
+			parts := re.FindStringSubmatch(m)
+			if len(parts) != 2 {
+				return m
+			}
+			return string(dataviewError(parts[1], err))
+		})
+	}
 	return re.ReplaceAllStringFunc(s, func(m string) string {
 		parts := re.FindStringSubmatch(m)
 		if len(parts) != 2 {
 			return m
 		}
-		return string(RenderDataviewBlock(v, parts[1]))
+		return string(RenderDataviewBlockWithIndex(v, idx, parts[1]))
 	})
 }
 
@@ -288,11 +301,12 @@ func splitTopLevel(s string, sep rune) []string {
 
 func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow, error) {
 	var rows []dataviewRow
+	heavy := q.requiredHeavyFields()
 	if q.Kind == "TASK" {
 		for _, meta := range idx.Notes {
 			if sourceMatches(meta, q.From) {
 				for _, task := range extractTasksForNote(v, meta) {
-					r := dataviewRow{Note: &meta, Task: &task, Data: dataviewBaseData(v, idx, meta)}
+					r := dataviewRow{Note: &meta, Task: &task, Data: dataviewBaseData(v, idx, meta, heavy)}
 					if whereMatches(r, q.Where) {
 						rows = append(rows, r)
 					}
@@ -302,7 +316,7 @@ func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow
 	} else {
 		for _, meta := range idx.Notes {
 			if sourceMatches(meta, q.From) {
-				r := dataviewRow{Note: &meta, Data: dataviewBaseData(v, idx, meta)}
+				r := dataviewRow{Note: &meta, Data: dataviewBaseData(v, idx, meta, heavy)}
 				if whereMatches(r, q.Where) {
 					rows = append(rows, r)
 				}
@@ -322,26 +336,31 @@ func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow
 	return rows, nil
 }
 
-func dataviewBaseData(v *Vault, idx *VaultIndex, meta NoteMeta) map[string]any {
+type dataviewHeavyFields struct{ Content, Inlinks bool }
+
+func (q dataviewQuery) requiredHeavyFields() dataviewHeavyFields {
+	var exprs []string
+	for _, c := range q.Columns {
+		exprs = append(exprs, c.Expr)
+	}
+	for _, s := range q.Sorts {
+		exprs = append(exprs, s.Expr)
+	}
+	exprs = append(exprs, q.Where, q.GroupBy, q.Flatten)
+	joined := strings.Join(exprs, "\n")
+	return dataviewHeavyFields{Content: strings.Contains(joined, "file.content"), Inlinks: strings.Contains(joined, "file.inlinks")}
+}
+
+func dataviewBaseData(v *Vault, idx *VaultIndex, meta NoteMeta, heavy dataviewHeavyFields) map[string]any {
 	data := map[string]any{}
-	if n, err := v.ReadNote(meta.RelPath); err == nil {
-		data["file.content"] = n.Body
-	}
-	var inlinks []dataviewLink
-	stem := strings.TrimSuffix(filepath.Base(meta.RelPath), filepath.Ext(meta.RelPath))
-	noExt := strings.TrimSuffix(meta.RelPath, filepath.Ext(meta.RelPath))
-	for _, other := range idx.Notes {
-		if other.RelPath == meta.RelPath {
-			continue
-		}
-		for _, target := range other.OutgoingWikiLinks {
-			if target == stem || target == noExt || target == meta.RelPath || strings.TrimSuffix(target, filepath.Ext(target)) == noExt {
-				inlinks = append(inlinks, dataviewLink{URL: other.URL, Text: noteFileName(other)})
-				break
-			}
+	if heavy.Content {
+		if n, err := v.ReadNote(meta.RelPath); err == nil {
+			data["file.content"] = n.Body
 		}
 	}
-	data["file.inlinks"] = inlinks
+	if heavy.Inlinks {
+		data["file.inlinks"] = idx.Inlinks[meta.RelPath]
+	}
 	return data
 }
 

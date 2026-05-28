@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,17 +30,31 @@ type WikiLinkOccurrence struct {
 }
 
 type VaultIndex struct {
-	Notes []NoteMeta
-	ByRel map[string]NoteMeta
-	Tags  map[string][]NoteMeta
+	Notes   []NoteMeta
+	ByRel   map[string]NoteMeta
+	Tags    map[string][]NoteMeta
+	Inlinks map[string][]dataviewLink
 }
 
 func (v *Vault) BuildIndex() (*VaultIndex, error) {
-	idx := &VaultIndex{
-		ByRel: map[string]NoteMeta{},
-		Tags:  map[string][]NoteMeta{},
+	v.indexMu.Lock()
+	defer v.indexMu.Unlock()
+
+	files := v.MarkdownFiles()
+	cacheKey, err := vaultIndexCacheKey(v, files)
+	if err != nil {
+		return nil, err
 	}
-	for _, p := range v.MarkdownFiles() {
+	if v.indexCache != nil && v.indexCacheKey == cacheKey {
+		return v.indexCache, nil
+	}
+
+	idx := &VaultIndex{
+		ByRel:   map[string]NoteMeta{},
+		Tags:    map[string][]NoteMeta{},
+		Inlinks: map[string][]dataviewLink{},
+	}
+	for _, p := range files {
 		note, err := v.ReadNote(p)
 		if err != nil {
 			return nil, err
@@ -63,7 +79,67 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 	for tag := range idx.Tags {
 		sort.Slice(idx.Tags[tag], func(i, j int) bool { return idx.Tags[tag][i].RelPath < idx.Tags[tag][j].RelPath })
 	}
+	idx.Inlinks = buildDataviewInlinks(idx)
+	v.indexCache = idx
+	v.indexCacheKey = cacheKey
 	return idx, nil
+}
+
+func vaultIndexCacheKey(v *Vault, files []string) (string, error) {
+	var b strings.Builder
+	for _, p := range files {
+		st, err := os.Stat(p)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(v.Rel(p))
+		b.WriteByte('\x00')
+		b.WriteString(strconv.FormatInt(st.ModTime().UnixNano(), 10))
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(st.Size(), 10))
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
+func buildDataviewInlinks(idx *VaultIndex) map[string][]dataviewLink {
+	keys := map[string][]string{}
+	for _, meta := range idx.Notes {
+		stem := strings.TrimSuffix(filepath.Base(meta.RelPath), filepath.Ext(meta.RelPath))
+		noExt := strings.TrimSuffix(meta.RelPath, filepath.Ext(meta.RelPath))
+		for _, key := range []string{meta.RelPath, noExt, stem} {
+			if key == "" {
+				continue
+			}
+			keys[key] = append(keys[key], meta.RelPath)
+		}
+	}
+
+	inlinks := map[string][]dataviewLink{}
+	seen := map[string]bool{}
+	for _, source := range idx.Notes {
+		for _, target := range source.OutgoingWikiLinks {
+			for _, key := range []string{target, strings.TrimSuffix(target, filepath.Ext(target))} {
+				for _, destRel := range keys[key] {
+					if destRel == source.RelPath {
+						continue
+					}
+					seenKey := source.RelPath + "\x00" + destRel
+					if seen[seenKey] {
+						continue
+					}
+					seen[seenKey] = true
+					inlinks[destRel] = append(inlinks[destRel], dataviewLink{URL: source.URL, Text: noteFileName(source)})
+				}
+			}
+		}
+	}
+	for rel := range inlinks {
+		sort.Slice(inlinks[rel], func(i, j int) bool {
+			return inlinks[rel][i].Text < inlinks[rel][j].Text
+		})
+	}
+	return inlinks
 }
 
 func extractTags(note Note) []string {

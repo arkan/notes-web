@@ -17,14 +17,20 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type (
-	Vault struct{ Root string }
-	Note  struct {
+	Vault struct {
+		Root          string
+		indexMu       sync.Mutex
+		indexCache    *VaultIndex
+		indexCacheKey string
+	}
+	Note struct {
 		Path, RelPath, Text, Body string
 		Frontmatter               map[string]any
 		ModTime                   time.Time

@@ -230,6 +230,90 @@ FROM "Projects"`))
 	}
 }
 
+func TestVaultIndexCacheReusesUnchangedIndexAndInvalidatesOnMarkdownChange(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx1, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx2, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx1 != idx2 {
+		t.Fatalf("unchanged vault should reuse cached index pointer")
+	}
+
+	writeDataviewFixture(t, v, "Projects/New.md", "---\ntitle: New\nstatus: active\n---\n# New\n")
+	idx3, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx3 == idx2 {
+		t.Fatalf("changed vault should invalidate cached index")
+	}
+	if _, ok := idx3.ByRel["Projects/New.md"]; !ok {
+		t.Fatalf("invalidated index should include new note")
+	}
+}
+
+func TestDataviewRowsComputeHeavyFieldsOnlyWhenQueryNeedsThem(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Projects/Linked.md", "# Linked\n[[Alpha]]\n")
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lightQuery, err := parseDataviewQuery(`TABLE file.link, status FROM "Projects" WHERE status = "active" SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lightRows, err := evalDataviewRows(v, idx, lightQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lightRows) == 0 {
+		t.Fatal("expected light dataview rows")
+	}
+	for _, row := range lightRows {
+		if _, ok := row.Data["file.content"]; ok {
+			t.Fatalf("light query should not populate file.content: %#v", row.Data)
+		}
+		if _, ok := row.Data["file.inlinks"]; ok {
+			t.Fatalf("light query should not populate file.inlinks: %#v", row.Data)
+		}
+	}
+
+	heavyQuery, err := parseDataviewQuery(`TABLE file.inlinks FROM "Projects" WHERE contains(file.content, "Alpha")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	heavyRows, err := evalDataviewRows(v, idx, heavyQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heavyRows) == 0 {
+		t.Fatal("expected heavy dataview rows")
+	}
+	foundAlpha := false
+	for _, row := range heavyRows {
+		if row.Note != nil && row.Note.RelPath == "Projects/Alpha.md" {
+			foundAlpha = true
+			if _, ok := row.Data["file.content"]; !ok {
+				t.Fatalf("query using file.content should populate it")
+			}
+			inlinks, ok := row.Data["file.inlinks"].([]dataviewLink)
+			if !ok || len(inlinks) == 0 || inlinks[0].Text != "Linked" {
+				t.Fatalf("query using file.inlinks should use precomputed backlinks, got %#v", row.Data["file.inlinks"])
+			}
+		}
+	}
+	if !foundAlpha {
+		t.Fatalf("expected Alpha row in heavy query: %#v", heavyRows)
+	}
+}
+
 func TestDataviewTableClientEnhancementAssetsArePresent(t *testing.T) {
 	for _, want := range []string{".dataview-table-wrap", ".dataview-error", "overflow-x:auto", ".dataview-filter", ".dataview-pager"} {
 		if !strings.Contains(css, want) {
