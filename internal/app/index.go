@@ -14,6 +14,7 @@ type NoteMeta struct {
 	URL               string
 	Title             string
 	Tags              []string
+	Frontmatter       map[string]any
 	OutgoingWikiLinks []string
 	OutgoingLinks     []WikiLinkOccurrence
 	ModTime           time.Time
@@ -47,6 +48,7 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 			URL:               v.URLForRel(note.RelPath),
 			Title:             v.Title(note),
 			Tags:              extractTags(note),
+			Frontmatter:       note.Frontmatter,
 			OutgoingWikiLinks: extractOutgoingWikiLinks(note.Body),
 			OutgoingLinks:     extractWikiLinkOccurrences(note.Body),
 			ModTime:           note.ModTime,

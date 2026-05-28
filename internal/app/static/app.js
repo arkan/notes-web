@@ -559,7 +559,8 @@ function markCopied(el, label) {
   if (label) el.textContent = label;
   setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
 }
-document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initTodoActions(); initTodoFilters(); });
+document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initTodoActions(); initTodoFilters();
+  initDataviewTables(); });
 document.addEventListener('click', async (ev) => {
   const codeCopy = ev.target.closest('[data-copy-code]');
   if (codeCopy) {
@@ -585,3 +586,67 @@ document.addEventListener('click', async (ev) => {
     markCopied(link, 'Link copied');
   }
 });
+
+function initDataviewTables() {
+  document.querySelectorAll('.dataview-table').forEach((table) => {
+    const wrap = table.closest('.dataview-table-wrap');
+    const filter = wrap?.querySelector('[data-dataview-filter]');
+    const pageSizeSelect = wrap?.querySelector('[data-dataview-page-size]');
+    const pager = wrap?.querySelector('[data-dataview-pager]');
+    const tbody = table.tBodies[0];
+    if (!tbody) return;
+    const allRows = Array.from(tbody.rows);
+    let page = 1;
+    const isGroupRow = (row) => row.classList.contains('dataview-group');
+    const updateVisibility = () => {
+      const q = (filter?.value || '').trim().toLowerCase();
+      const pageSize = Number(pageSizeSelect?.value || 0);
+      const matches = allRows.filter(row => isGroupRow(row) || !q || row.textContent.toLowerCase().includes(q));
+      const dataRows = matches.filter(row => !isGroupRow(row));
+      const maxPage = pageSize > 0 ? Math.max(1, Math.ceil(dataRows.length / pageSize)) : 1;
+      page = Math.min(page, maxPage);
+      let seen = 0;
+      allRows.forEach(row => {
+        if (!matches.includes(row)) { row.hidden = true; return; }
+        if (isGroupRow(row) || pageSize === 0) { row.hidden = false; return; }
+        seen += 1;
+        row.hidden = seen <= (page - 1) * pageSize || seen > page * pageSize;
+      });
+      if (pager) {
+        pager.innerHTML = pageSize > 0 && dataRows.length > pageSize
+          ? '<button type="button" data-dataview-prev>Prev</button><span>Page ' + page + ' / ' + maxPage + ' · ' + dataRows.length + ' rows</span><button type="button" data-dataview-next>Next</button>'
+          : '<span>' + dataRows.length + ' rows</span>';
+        pager.querySelector('[data-dataview-prev]')?.addEventListener('click', () => { page = Math.max(1, page - 1); updateVisibility(); });
+        pager.querySelector('[data-dataview-next]')?.addEventListener('click', () => { page = Math.min(maxPage, page + 1); updateVisibility(); });
+      }
+    };
+    filter?.classList.add('dataview-filter');
+    filter?.addEventListener('input', () => { page = 1; updateVisibility(); });
+    pageSizeSelect?.addEventListener('change', () => { page = 1; updateVisibility(); });
+    const headers = table.querySelectorAll('th[data-dataview-sort]');
+    headers.forEach((th, index) => {
+      th.tabIndex = 0;
+      const sort = () => {
+        const current = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+        headers.forEach(h => h.setAttribute('aria-sort', 'none'));
+        th.setAttribute('aria-sort', current);
+        const rows = Array.from(tbody.rows);
+        const groupRows = rows.filter(isGroupRow);
+        const sortableRows = rows.filter(row => !isGroupRow(row));
+        sortableRows.sort((a, b) => {
+          const av = (a.cells[index]?.textContent || '').trim();
+          const bv = (b.cells[index]?.textContent || '').trim();
+          const an = Number(av), bn = Number(bv);
+          const cmp = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : av.localeCompare(bv, undefined, {numeric:true, sensitivity:'base'});
+          return current === 'ascending' ? cmp : -cmp;
+        });
+        [...groupRows, ...sortableRows].forEach(row => tbody.appendChild(row));
+        allRows.splice(0, allRows.length, ...Array.from(tbody.rows));
+        updateVisibility();
+      };
+      th.addEventListener('click', sort);
+      th.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); sort(); } });
+    });
+    updateVisibility();
+  });
+}

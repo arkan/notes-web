@@ -1,0 +1,18 @@
+{{define "dataview"}}{{template "layout-start" .}}
+<section class="page-header">
+  <h1>Dataview diagnostics</h1>
+  <p class="muted">{{.Total}} block(s) found · {{.Unsupported}} unsupported</p>
+</section>
+<div class="note-list">
+{{range .Diagnostics}}
+  <article class="note-card dataview-diagnostic {{.Status}}">
+    <h2><a href="{{url .Path}}">{{.Path}}</a></h2>
+    <p><span class="chip">{{.Kind}}</span> <span class="chip">{{.Status}}</span> line {{.Line}}</p>
+    {{if .Message}}<p class="muted">{{.Message}}</p>{{end}}
+    <pre><code>{{.Query}}</code></pre>
+  </article>
+{{else}}
+  <p class="empty-state">No Dataview blocks found.</p>
+{{end}}
+</div>
+{{template "layout-end" .}}{{end}}

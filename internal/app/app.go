@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type (
@@ -317,6 +319,10 @@ func parseFrontmatter(s string) (map[string]any, string) {
 			raw := s[4 : 4+idx]
 			body := s[4+idx+len("\n---"):]
 			body = strings.TrimPrefix(body, "\n")
+			var parsed map[string]any
+			if err := yaml.Unmarshal([]byte(raw), &parsed); err == nil && parsed != nil {
+				return normalizeYAMLMap(parsed), body
+			}
 			for _, line := range strings.Split(raw, "\n") {
 				if k, v, ok := strings.Cut(line, ":"); ok {
 					val := strings.TrimSpace(v)
@@ -328,6 +334,29 @@ func parseFrontmatter(s string) (map[string]any, string) {
 		}
 	}
 	return fm, s
+}
+
+func normalizeYAMLMap(in map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range in {
+		out[k] = normalizeYAMLValue(v)
+	}
+	return out
+}
+
+func normalizeYAMLValue(v any) any {
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i, item := range x {
+			out[i] = normalizeYAMLValue(item)
+		}
+		return out
+	case map[string]any:
+		return normalizeYAMLMap(x)
+	default:
+		return x
+	}
 }
 
 func stripMD(s string) string {
@@ -398,6 +427,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.todo(w, r)
 	case "/_broken-links":
 		s.brokenLinks(w, r)
+	case "/_dataview":
+		s.dataviewDiagnostics(w, r)
 	case "/_orphans":
 		s.orphans(w, r)
 	default:
@@ -530,6 +561,21 @@ func (s *Server) brokenLinks(w http.ResponseWriter, r *http.Request) {
 		c["BrokenTopLimit"] = 50
 	}
 	s.render(w, "broken-links", c)
+}
+
+func (s *Server) dataviewDiagnostics(w http.ResponseWriter, r *http.Request) {
+	items := ScanDataviewDiagnostics(s.vault)
+	c := s.common("Dataview diagnostics")
+	c["Diagnostics"] = items
+	c["Total"] = len(items)
+	unsupported := 0
+	for _, item := range items {
+		if item.Status != "supported" {
+			unsupported++
+		}
+	}
+	c["Unsupported"] = unsupported
+	s.render(w, "dataview", c)
 }
 
 func (s *Server) orphans(w http.ResponseWriter, r *http.Request) {
