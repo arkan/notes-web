@@ -318,7 +318,7 @@ func TestDataviewRowsComputeHeavyFieldsOnlyWhenQueryNeedsThem(t *testing.T) {
 }
 
 func TestDataviewTableClientEnhancementAssetsArePresent(t *testing.T) {
-	for _, want := range []string{".dataview-table-wrap", ".dataview-error", "overflow-x:auto", ".dataview-filter", ".dataview-pager"} {
+	for _, want := range []string{".dataview-table-wrap", ".dataview-error", "overflow-x:auto", "-webkit-overflow-scrolling:touch", ".dataview-table-scroll{width:100%;min-width:100%", ".dataview-table-wrap .dataview-table{display:table;width:100%;max-width:none;min-width:var(--dataview-min-width);margin:0", ".dataview-controls{box-sizing:border-box;display:flex", ".dataview-pager{box-sizing:border-box;display:flex", ".dataview-filter", ".dataview-pager"} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("CSS missing %q", want)
 		}

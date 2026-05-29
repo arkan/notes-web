@@ -24,20 +24,22 @@ body{background:radial-gradient(circle at top left,color-mix(in srgb,var(--soft)
 
 
 
-.dataview-table-wrap{width:100%;max-width:100%;overflow-x:auto;margin:var(--space-4) 0;border-radius:var(--radius-md);box-shadow:0 0 0 1px var(--line)}
-.dataview-table{width:100%;border-collapse:collapse;background:var(--surface);font-size:.95em}
-.dataview-table th,.dataview-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-.dataview-table th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:color-mix(in srgb,var(--surface),var(--line) 20%);cursor:pointer}
-.dataview-table td.number{text-align:right;font-variant-numeric:tabular-nums}
+.dataview-table-wrap{--dataview-min-width:760px;width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;margin:var(--space-4) 0;border-radius:var(--radius-md);box-shadow:0 0 0 1px var(--line);-webkit-overflow-scrolling:touch}
+.dataview-table-scroll{width:100%;min-width:100%}
+.dataview-table-wrap .dataview-table{display:table;width:100%;max-width:none;min-width:var(--dataview-min-width);margin:0;border-collapse:collapse;background:var(--surface);font-size:.95em;table-layout:auto}
+.dataview-table th,.dataview-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal;word-break:normal}
+.dataview-table th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:color-mix(in srgb,var(--surface),var(--line) 20%);cursor:pointer;white-space:nowrap}
+.dataview-table td.number{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dataview-table td a{overflow-wrap:normal;word-break:normal}
 .dataview-list,.dataview-tasks{margin:var(--space-4) 0;padding-left:1.4rem}
 .dataview-list-value{color:var(--muted);margin-left:.35rem}
 .dataview-error{margin:var(--space-4) 0;padding:var(--space-4);border:1px solid var(--warning);border-radius:var(--radius-md);background:color-mix(in srgb,var(--warning),transparent 88%)}
 .dataview-error pre{white-space:pre-wrap;overflow:auto}
 
-.dataview-controls{display:flex;gap:var(--space-3);align-items:center;justify-content:space-between;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line);min-width:520px}
+.dataview-controls{box-sizing:border-box;display:flex;gap:var(--space-3);align-items:center;justify-content:space-between;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line);min-width:var(--dataview-min-width);width:100%}
 .dataview-filter,.dataview-controls select{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);padding:4px 6px}
 .dataview-filter-label,.dataview-page-size-label{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
-.dataview-pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:8px 10px;color:var(--muted);font-size:12px;background:var(--surface)}
+.dataview-pager{box-sizing:border-box;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:8px 10px;color:var(--muted);font-size:12px;background:var(--surface);min-width:var(--dataview-min-width);width:100%}
 .dataview-pager button{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);padding:3px 8px}
 .dataview-calendar{display:grid;gap:var(--space-3);margin:var(--space-4) 0}
 .dataview-calendar-day{border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3);background:var(--surface)}

@@ -802,7 +802,7 @@ type dataviewLink struct{ URL, Text string }
 
 func renderDataviewTable(q dataviewQuery, rows []dataviewRow) template.HTML {
 	var b strings.Builder
-	b.WriteString(`<div class="dataview dataview-table-wrap"><div class="dataview-controls"><label class="dataview-filter-label">Filter <input class="dataview-filter" type="search" data-dataview-filter placeholder="Filter table…"></label><label class="dataview-page-size-label">Rows <select data-dataview-page-size><option value="0">All</option><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label></div><table class="dataview-table"><thead><tr>`)
+	b.WriteString(`<div class="dataview dataview-table-wrap"><div class="dataview-table-scroll"><div class="dataview-controls"><label class="dataview-filter-label">Filter <input class="dataview-filter" type="search" data-dataview-filter placeholder="Filter table…"></label><label class="dataview-page-size-label">Rows <select data-dataview-page-size><option value="0">All</option><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label></div><table class="dataview-table"><thead><tr>`)
 	cols := q.Columns
 	if len(cols) == 0 {
 		cols = []dataviewColumn{{Expr: "file.link", Label: "File"}}
@@ -821,7 +821,7 @@ func renderDataviewTable(q dataviewQuery, rows []dataviewRow) template.HTML {
 		}
 		b.WriteString(`</tr>`)
 	}
-	b.WriteString(`</tbody></table><div class="dataview-pager" data-dataview-pager aria-live="polite"></div></div>`)
+	b.WriteString(`</tbody></table><div class="dataview-pager" data-dataview-pager aria-live="polite"></div></div></div>`)
 	return template.HTML(b.String())
 }
 func renderDataviewCell(v any) string {
