@@ -1,11 +1,13 @@
 package app
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBacklinksAndSearch(t *testing.T) {
@@ -58,6 +60,55 @@ func TestSearchRanksTitleMatchesAndHighlightsSnippets(t *testing.T) {
 	}
 	if !foundHighlightedSnippet {
 		t.Fatalf("expected highlighted snippet in results: %+v", results)
+	}
+}
+
+func TestEmptySearchPageShowsHundredMostRecentlyModifiedNotes(t *testing.T) {
+	v := makeVault(t)
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 105; i++ {
+		rel := fmt.Sprintf("Recent/Note-%03d.md", i)
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("# Recent %03d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mt := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_search", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	for _, want := range []string{
+		`<h2>Recently modified</h2>`,
+		`Showing the 100 latest Markdown files by modification date.`,
+		`Recent 104`,
+		`Recent/Note-104.md`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("empty search page missing %q in:\n%s", want, body)
+		}
+	}
+	recentSectionStart := strings.Index(body, `class="recent-search-results card"`)
+	if recentSectionStart < 0 {
+		t.Fatalf("missing recent results section in:\n%s", body)
+	}
+	recentSection := body[recentSectionStart:]
+	if strings.Contains(recentSection, `<small>Recent/Note-004.md`) {
+		t.Fatalf("empty search page should cap recent notes to 100; oldest extra note leaked in recent section:\n%s", recentSection)
+	}
+	newest := strings.Index(recentSection, `Recent/Note-104.md`)
+	older := strings.Index(recentSection, `Recent/Note-103.md`)
+	if newest < 0 || older < 0 || newest > older {
+		t.Fatalf("recent notes should be sorted by descending mtime; got indexes newest=%d older=%d", newest, older)
 	}
 }
 

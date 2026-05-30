@@ -496,10 +496,23 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
-	res, err := s.searcher.Search(q)
+	qTrimmed := strings.TrimSpace(q)
+	var res []SearchResult
+	var recent []NoteMeta
+	var err error
+	if qTrimmed != "" {
+		res, err = s.searcher.Search(qTrimmed)
+	} else {
+		var idx *VaultIndex
+		idx, err = s.vault.BuildIndex()
+		if err == nil {
+			recent = recentNoteMetas(idx, 100)
+		}
+	}
 	c := s.common("Search")
 	c["Q"] = q
 	c["Results"] = res
+	c["RecentNotes"] = recent
 	c["Err"] = err
 	s.render(w, "search", c)
 }
