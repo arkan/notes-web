@@ -40,9 +40,20 @@ func normalizeRenderedHTML(s string) string {
 	s = decorateTaskLists(s)
 	s = decorateTaskMetadata(s)
 	s = decorateCodeBlocks(s)
+	s = decorateMarkdownTables(s)
 	tidRe := regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
 	s = tidRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
 	return s
+}
+
+func decorateMarkdownTables(s string) string {
+	re := regexp.MustCompile(`(?s)<table([^>]*)>.*?</table>`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		if strings.Contains(match, `dataview-table`) || strings.Contains(match, `markdown-table-wrap`) {
+			return match
+		}
+		return `<div class="markdown-table-wrap">` + match + `</div>`
+	})
 }
 
 func decorateTaskLists(s string) string {

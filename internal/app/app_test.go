@@ -222,6 +222,23 @@ func TestWikilinkResolution(t *testing.T) {
 	}
 }
 
+func TestMarkdownTablesAreWrappedForMobileHorizontalScroll(t *testing.T) {
+	v := makeVault(t)
+	note := Note{Path: "table.md", Body: strings.Join([]string{
+		"# Table",
+		"",
+		"| Categorie | Date | Status | Valeur |",
+		"|-----------|------|--------|--------|",
+		"| sante | 2026-05-30 | active | Une valeur longue |",
+	}, "\n")}
+	doc := NewRenderer(v).Render(note)
+	for _, want := range []string{`<div class="markdown-table-wrap"><table>`, `<th>Categorie</th>`, `</table></div>`} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("markdown table missing mobile wrapper %q in:\n%s", want, doc.HTML)
+		}
+	}
+}
+
 func TestMarkdownRenderingFeatures(t *testing.T) {
 	v := makeVault(t)
 	note, err := v.ReadNote("Areas/Daily Briefings/2026-05-22-briefing.md")
