@@ -103,6 +103,9 @@ func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T)
 		".content h2{margin:2.2rem 0 1rem}",
 		".content pre{overflow:auto;max-width:100%;",
 		".markdown-table-wrap{width:100%;max-width:100%;overflow-x:auto;",
+		".content .markdown-table-wrap table{display:table;width:100%;min-width:680px;",
+		".content .markdown-table-wrap td:last-child{min-width:18rem;max-width:34rem}",
+		"@media(max-width:640px){.content .markdown-table-wrap table{min-width:580px;font-size:.82rem;",
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("missing readable typography CSS %q in:\n%s", want, css)
