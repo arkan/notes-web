@@ -119,6 +119,47 @@ func TestFavoriteRequiresConfiguredLabel(t *testing.T) {
 	}
 }
 
+func TestHiddenBlocksHideUIOnly(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\n  - path: _todo\n    label: Todos\nhidden_blocks:\n  - calendar\n  - todo\n  - explore\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := v.LoadConfig()
+	if !cfg.UI().HideCalendar || !cfg.UI().HideTodo || !cfg.UI().HideExplore {
+		t.Fatalf("hidden_blocks did not populate UI flags: %+v", cfg.UI())
+	}
+	for _, fav := range v.Favorites() {
+		if fav.Path == "_todo" {
+			t.Fatalf("hidden TODO should not remain visible in favorites: %+v", v.Favorites())
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, unwanted := range []string{
+		`<h3>Explore</h3>`,
+		`class="home-calendar card"`,
+		`class="open-todos card"`,
+		`href="/_todo"`,
+		`Open TODOs`,
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("hidden UI block leaked %q in:\n%s", unwanted, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_todo?today=2026-05-20", nil)
+	s.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `class="todo-shell"`) {
+		t.Fatalf("hidden TODO should remain directly accessible, status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func treeContainsRel(nodes []TreeNode, rel string) bool {
 	for _, node := range nodes {
 		if node.Rel == rel || treeContainsRel(node.Children, rel) {
