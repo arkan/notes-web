@@ -8,10 +8,17 @@ import (
 )
 
 type Config struct {
-	Favorites  []Favorite
-	DailyGlob  string
-	Hidden     []string
-	FolderSort string
+	Favorites    []Favorite
+	DailyGlob    string
+	Hidden       []string
+	HiddenBlocks []string
+	FolderSort   string
+}
+
+type UIConfig struct {
+	HideCalendar bool
+	HideTodo     bool
+	HideExplore  bool
 }
 
 type Favorite struct {
@@ -33,13 +40,40 @@ func (v *Vault) Favorites() []Favorite {
 	for _, fav := range cfg.Favorites {
 		fav.Path = strings.Trim(fav.Path, " /")
 		fav.Label = strings.TrimSpace(fav.Label)
-		if fav.Path == "" || fav.Label == "" || v.isHiddenRel(fav.Path, cfg.Hidden) {
+		if fav.Path == "" || fav.Label == "" || v.isHiddenRel(fav.Path, cfg.Hidden) || (cfg.HideBlock("todo") && fav.Path == "_todo") {
 			continue
 		}
 		fav.URL = v.URLForRel(fav.Path)
 		out = append(out, fav)
 	}
 	return out
+}
+
+func (cfg Config) UI() UIConfig {
+	return UIConfig{
+		HideCalendar: cfg.HideBlock("calendar"),
+		HideTodo:     cfg.HideBlock("todo"),
+		HideExplore:  cfg.HideBlock("explore"),
+	}
+}
+
+func (cfg Config) HideBlock(name string) bool {
+	name = normalizeBlockName(name)
+	for _, block := range cfg.HiddenBlocks {
+		if normalizeBlockName(block) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeBlockName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.Trim(name, "_- ")
+	if name == "todos" {
+		return "todo"
+	}
+	return name
 }
 
 func (v *Vault) LoadConfig() Config {
@@ -78,6 +112,11 @@ func (v *Vault) LoadConfig() Config {
 			currentFavorite = -1
 			continue
 		}
+		if strings.HasPrefix(tr, "hidden_blocks:") {
+			section = "hidden_blocks"
+			currentFavorite = -1
+			continue
+		}
 		if strings.HasPrefix(tr, "-") {
 			value := strings.TrimSpace(strings.TrimPrefix(tr, "-"))
 			switch section {
@@ -89,6 +128,8 @@ func (v *Vault) LoadConfig() Config {
 				}
 			case "hidden":
 				cfg.Hidden = append(cfg.Hidden, yamlScalar(value))
+			case "hidden_blocks":
+				cfg.HiddenBlocks = append(cfg.HiddenBlocks, yamlScalar(value))
 			}
 			continue
 		}
