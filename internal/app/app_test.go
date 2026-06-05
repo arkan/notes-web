@@ -119,20 +119,16 @@ func TestFavoriteRequiresConfiguredLabel(t *testing.T) {
 	}
 }
 
-func TestHiddenBlocksHideUIOnly(t *testing.T) {
+func TestStructuredUIVisibilityConfigHidesUIOnly(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\n  - path: _todo\n    label: Todos\nhidden_blocks:\n  - calendar\n  - todo\n  - explore\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\nsidebar:\n  explore:\n    visible: false\nhomepage:\n  blocks:\n    calendar:\n      visible: false\n    todos:\n      visible: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := v.LoadConfig()
-	if !cfg.UI().HideCalendar || !cfg.UI().HideTodo || !cfg.UI().HideExplore {
-		t.Fatalf("hidden_blocks did not populate UI flags: %+v", cfg.UI())
-	}
-	for _, fav := range v.Favorites() {
-		if fav.Path == "_todo" {
-			t.Fatalf("hidden TODO should not remain visible in favorites: %+v", v.Favorites())
-		}
+	ui := cfg.UI()
+	if !ui.HideHomepageCalendar || !ui.HideHomepageTodos || !ui.HideSidebarExplore {
+		t.Fatalf("structured visibility config did not populate UI flags: %+v", ui)
 	}
 
 	s := NewServer(v, "", "")
@@ -157,6 +153,25 @@ func TestHiddenBlocksHideUIOnly(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `class="todo-shell"`) {
 		t.Fatalf("hidden TODO should remain directly accessible, status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestHomepageTodoVisibilityDoesNotHideSidebarTodo(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\nhomepage:\n  blocks:\n    todos:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, `class="open-todos card"`) {
+		t.Fatalf("homepage TODO block should be hidden:\n%s", body)
+	}
+	if !strings.Contains(body, `<h3>Explore</h3>`) || !strings.Contains(body, `href="/_todo"`) {
+		t.Fatalf("sidebar Explore TODO link should remain visible when only homepage todos are hidden:\n%s", body)
 	}
 }
 

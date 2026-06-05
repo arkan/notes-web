@@ -199,10 +199,15 @@ favorites:
     label: Projects
 daily_glob: "Areas/Daily Briefings/*-briefing.md"
 folder_sort: name_asc
-hidden_blocks:
-  - calendar
-  - todo
-  - explore
+sidebar:
+  explore:
+    visible: false
+homepage:
+  blocks:
+    todos:
+      visible: false
+    calendar:
+      visible: false
 ```
 
 ### `favorites`
@@ -220,13 +225,18 @@ A glob used to find the latest daily note shown on the home page.
 
 Default sort for folder pages. Accepted values: `name_asc` (default), `name_desc`, `modified_desc`, `modified_asc`.
 
-### `hidden_blocks`
+### `sidebar`
 
-A list of UI blocks to hide while keeping the underlying internal routes available. Accepted values:
+Controls sidebar UI sections while keeping the underlying internal routes available.
 
-- `calendar`: hide the home page calendar card.
-- `todo`: hide TODO dashboard links and home page TODO summaries.
-- `explore`: hide the sidebar Explore section.
+- `sidebar.explore.visible`: set to `false` to hide the sidebar Explore section.
+
+### `homepage`
+
+Controls home page blocks while keeping the underlying internal routes available.
+
+- `homepage.blocks.todos.visible`: set to `false` to hide the home page TODO summary and quick jump.
+- `homepage.blocks.calendar.visible`: set to `false` to hide the home page calendar card.
 
 ## Command-line options
 

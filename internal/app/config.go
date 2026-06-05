@@ -1,30 +1,52 @@
 package app
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Favorites    []Favorite
-	DailyGlob    string
-	Hidden       []string
-	HiddenBlocks []string
-	FolderSort   string
+	Favorites    []Favorite     `yaml:"favorites"`
+	DailyGlob    string         `yaml:"daily_glob"`
+	Hidden       []string       `yaml:"hidden"`
+	HiddenBlocks []string       `yaml:"hidden_blocks"`
+	FolderSort   string         `yaml:"folder_sort"`
+	Sidebar      SidebarConfig  `yaml:"sidebar"`
+	Homepage     HomepageConfig `yaml:"homepage"`
 }
 
 type UIConfig struct {
-	HideCalendar bool
-	HideTodo     bool
-	HideExplore  bool
+	HideHomepageCalendar bool
+	HideHomepageTodos    bool
+	HideSidebarExplore   bool
+	HideSidebarTodo      bool
+}
+
+type SidebarConfig struct {
+	Explore VisibilityConfig `yaml:"explore"`
+}
+
+type HomepageConfig struct {
+	Blocks HomepageBlocksConfig `yaml:"blocks"`
+}
+
+type HomepageBlocksConfig struct {
+	Calendar VisibilityConfig `yaml:"calendar"`
+	Todos    VisibilityConfig `yaml:"todos"`
+	Todo     VisibilityConfig `yaml:"todo"`
+}
+
+type VisibilityConfig struct {
+	Visible *bool `yaml:"visible"`
 }
 
 type Favorite struct {
-	Path  string
-	Label string
-	URL   string
+	Path  string `yaml:"path"`
+	Label string `yaml:"label"`
+	URL   string `yaml:"-"`
 }
 
 func (v *Vault) Favorites() []Favorite {
@@ -51,9 +73,10 @@ func (v *Vault) Favorites() []Favorite {
 
 func (cfg Config) UI() UIConfig {
 	return UIConfig{
-		HideCalendar: cfg.HideBlock("calendar"),
-		HideTodo:     cfg.HideBlock("todo"),
-		HideExplore:  cfg.HideBlock("explore"),
+		HideHomepageCalendar: cfg.HideBlock("calendar") || cfg.Homepage.Blocks.Calendar.Hidden(),
+		HideHomepageTodos:    cfg.HideBlock("todo") || cfg.Homepage.Blocks.Todos.Hidden() || cfg.Homepage.Blocks.Todo.Hidden(),
+		HideSidebarExplore:   cfg.HideBlock("explore") || cfg.Sidebar.Explore.Hidden(),
+		HideSidebarTodo:      cfg.HideBlock("todo"),
 	}
 }
 
@@ -76,79 +99,18 @@ func normalizeBlockName(name string) string {
 	return name
 }
 
+func (v VisibilityConfig) Hidden() bool {
+	return v.Visible != nil && !*v.Visible
+}
+
 func (v *Vault) LoadConfig() Config {
 	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", FolderSort: "name_asc"}
 	b, err := os.ReadFile(filepath.Join(v.Root, ".notes-web.yaml"))
 	if err != nil {
 		return cfg
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(b)))
-	section := ""
-	currentFavorite := -1
-	for scanner.Scan() {
-		tr := strings.TrimSpace(scanner.Text())
-		if tr == "" || strings.HasPrefix(tr, "#") {
-			continue
-		}
-		if strings.HasPrefix(tr, "daily_glob:") {
-			cfg.DailyGlob = yamlScalar(strings.TrimPrefix(tr, "daily_glob:"))
-			section = ""
-			currentFavorite = -1
-			continue
-		}
-		if strings.HasPrefix(tr, "folder_sort:") {
-			cfg.FolderSort = yamlScalar(strings.TrimPrefix(tr, "folder_sort:"))
-			section = ""
-			currentFavorite = -1
-			continue
-		}
-		if strings.HasPrefix(tr, "favorites:") {
-			section = "favorites"
-			currentFavorite = -1
-			continue
-		}
-		if strings.HasPrefix(tr, "hidden:") {
-			section = "hidden"
-			currentFavorite = -1
-			continue
-		}
-		if strings.HasPrefix(tr, "hidden_blocks:") {
-			section = "hidden_blocks"
-			currentFavorite = -1
-			continue
-		}
-		if strings.HasPrefix(tr, "-") {
-			value := strings.TrimSpace(strings.TrimPrefix(tr, "-"))
-			switch section {
-			case "favorites":
-				currentFavorite = -1
-				if strings.HasPrefix(value, "path:") {
-					cfg.Favorites = append(cfg.Favorites, Favorite{Path: yamlScalar(strings.TrimPrefix(value, "path:"))})
-					currentFavorite = len(cfg.Favorites) - 1
-				}
-			case "hidden":
-				cfg.Hidden = append(cfg.Hidden, yamlScalar(value))
-			case "hidden_blocks":
-				cfg.HiddenBlocks = append(cfg.HiddenBlocks, yamlScalar(value))
-			}
-			continue
-		}
-		if section == "favorites" && currentFavorite >= 0 {
-			if strings.HasPrefix(tr, "path:") {
-				cfg.Favorites[currentFavorite].Path = yamlScalar(strings.TrimPrefix(tr, "path:"))
-				continue
-			}
-			if strings.HasPrefix(tr, "label:") {
-				cfg.Favorites[currentFavorite].Label = yamlScalar(strings.TrimPrefix(tr, "label:"))
-				continue
-			}
-		}
-		section = ""
-		currentFavorite = -1
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return cfg
 	}
 	return cfg
-}
-
-func yamlScalar(value string) string {
-	return strings.Trim(strings.TrimSpace(value), "'\"")
 }
