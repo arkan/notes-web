@@ -396,6 +396,52 @@ func TestTaskMetadataRendersAsReadableBadges(t *testing.T) {
 	}
 }
 
+func TestNestedTaskListsStayInContentColumn(t *testing.T) {
+	v := makeVault(t)
+	doc := NewRenderer(v).Render(Note{Body: "# Nested Tasks\n\n- [ ] Contacter l'assurance voiture :\n  - [ ] vérifier si le contrat peut être stoppé temporairement ;\n  - [ ] sinon vérifier si le coût peut être réduit ;\n"})
+	for _, want := range []string{
+		`<ul class="contains-task-list">`,
+		`<li class="task-list-item"><input type="checkbox" disabled><span class="task-list-content">Contacter l'assurance voiture :</span>`,
+		`<li class="task-list-item"><input type="checkbox" disabled><span class="task-list-content">vérifier si le contrat peut être stoppé temporairement ;</span>`,
+		`<li class="task-list-item"><input type="checkbox" disabled><span class="task-list-content">sinon vérifier si le coût peut être réduit ;</span>`,
+	} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("missing nested task markup %q in:\n%s", want, doc.HTML)
+		}
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		`.content .task-list-item{min-width:0}`,
+		`.content .task-list-item>.task-list-content{grid-column:2/-1;min-width:0;overflow-wrap:anywhere}`,
+		`.content .task-list-item>:where(ul,ol){grid-column:2/-1;width:100%;min-width:0;margin-top:8px}`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing nested task CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
+func TestTaskListMetadataStaysInContentColumn(t *testing.T) {
+	v := makeVault(t)
+	doc := NewRenderer(v).Render(Note{Body: "# TODO\n\n- [ ] Phase 1 Silex — Core KB (auth, CRUD, search, git, WYSIWYG) #project/silex ⏫ 📅 2026-07-01 <!-- tid:27f25759 -->\n- [ ] https://github.com/PentHertz/LUKSbox #security <!-- tid:b70305cc -->\n"})
+	for _, want := range []string{
+		`<li class="task-list-item"><input type="checkbox" disabled><span class="task-list-content">Phase 1 Silex`,
+		`<span class="task-meta priority-meta" title="Priority">Priority</span>`,
+		`<span class="task-meta due-date" title="Due date">Due 2026-07-01</span>`,
+		`<button class="task-id" data-copy="27f25759" title="Copy task ID">tid:27f25759</button></span></li>`,
+		`<a href="https://github.com/PentHertz/LUKSbox">https://github.com/PentHertz/LUKSbox</a> #security <button class="task-id" data-copy="b70305cc" title="Copy task ID">tid:b70305cc</button></span></li>`,
+	} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("missing wrapped metadata task markup %q in:\n%s", want, doc.HTML)
+		}
+	}
+}
+
 func TestFrontendAssetsAreEmbeddedFilesWithoutNewFrameworkLayers(t *testing.T) {
 	for _, path := range []string{
 		"templates/layout.html",

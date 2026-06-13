@@ -43,6 +43,7 @@ func normalizeRenderedHTML(s string) string {
 	s = decorateMarkdownTables(s)
 	tidRe := regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
 	s = tidRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
+	s = wrapTaskListItemContent(s)
 	return s
 }
 
@@ -63,6 +64,21 @@ func decorateTaskLists(s string) string {
 	s = strings.ReplaceAll(s, "<ul>\n<li><input", "<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input")
 	s = strings.ReplaceAll(s, "</li>\n<li><input", "</li>\n<li class=\"task-list-item\"><input")
 	return s
+}
+
+func wrapTaskListItemContent(s string) string {
+	if !strings.Contains(s, `class="task-list-item"`) {
+		return s
+	}
+	re := regexp.MustCompile(`(?s)(<li class="task-list-item"><input\b[^>]*>)(.*?)(\n?<ul class="contains-task-list">|</li>)`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		parts := re.FindStringSubmatch(match)
+		if len(parts) != 4 || strings.Contains(parts[2], `class="task-list-content"`) {
+			return match
+		}
+		content := strings.TrimPrefix(parts[2], " ")
+		return parts[1] + `<span class="task-list-content">` + content + `</span>` + parts[3]
+	})
 }
 
 func decorateTaskMetadata(s string) string {
