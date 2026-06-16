@@ -9,7 +9,6 @@ import (
 )
 
 type Config struct {
-	Favorites    []Favorite     `yaml:"favorites"`
 	DailyGlob    string         `yaml:"daily_glob"`
 	Hidden       []string       `yaml:"hidden"`
 	HiddenBlocks []string       `yaml:"hidden_blocks"`
@@ -23,10 +22,21 @@ type UIConfig struct {
 	HideHomepageTodos    bool
 	HideSidebarExplore   bool
 	HideSidebarTodo      bool
+	HideSidebarFavorites bool
 }
 
 type SidebarConfig struct {
-	Explore VisibilityConfig `yaml:"explore"`
+	Explore   VisibilityConfig       `yaml:"explore"`
+	Favorites SidebarFavoritesConfig `yaml:"favorites"`
+}
+
+type SidebarFavoritesConfig struct {
+	Visible *bool      `yaml:"visible"`
+	Items   []Favorite `yaml:"items"`
+}
+
+func (f SidebarFavoritesConfig) Hidden() bool {
+	return f.Visible != nil && !*f.Visible
 }
 
 type HomepageConfig struct {
@@ -51,15 +61,19 @@ type Favorite struct {
 
 func (v *Vault) Favorites() []Favorite {
 	cfg := v.LoadConfig()
-	if len(cfg.Favorites) == 0 {
-		cfg.Favorites = []Favorite{
+	items := cfg.Sidebar.Favorites.Items
+	if len(items) == 0 {
+		items = []Favorite{
 			{Path: "Areas/Daily Briefings", Label: "Daily Briefings"},
 			{Path: "_todo", Label: "Todos"},
 			{Path: "Projects", Label: "Projects"},
 		}
 	}
+	if cfg.UI().HideSidebarFavorites {
+		return nil
+	}
 	var out []Favorite
-	for _, fav := range cfg.Favorites {
+	for _, fav := range items {
 		fav.Path = strings.Trim(fav.Path, " /")
 		fav.Label = strings.TrimSpace(fav.Label)
 		if fav.Path == "" || fav.Label == "" || v.isHiddenRel(fav.Path, cfg.Hidden) || (cfg.HideBlock("todo") && fav.Path == "_todo") {
@@ -77,6 +91,7 @@ func (cfg Config) UI() UIConfig {
 		HideHomepageTodos:    cfg.HideBlock("todo") || cfg.Homepage.Blocks.Todos.Hidden() || cfg.Homepage.Blocks.Todo.Hidden(),
 		HideSidebarExplore:   cfg.HideBlock("explore") || cfg.Sidebar.Explore.Hidden(),
 		HideSidebarTodo:      cfg.HideBlock("todo"),
+		HideSidebarFavorites: cfg.HideBlock("favorites") || cfg.Sidebar.Favorites.Hidden(),
 	}
 }
 
