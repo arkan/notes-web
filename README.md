@@ -190,16 +190,18 @@ Notes Web can read an optional `.notes-web.yaml` file at the vault root.
 Example:
 
 ```yaml
-favorites:
-  - path: Areas/Daily Briefings
-    label: Daily Briefings
-  - path: _todo
-    label: TODOs
-  - path: Projects
-    label: Projects
 daily_glob: "Areas/Daily Briefings/*-briefing.md"
 folder_sort: name_asc
 sidebar:
+  favorites:
+    visible: true
+    items:
+      - path: Areas/Daily Briefings
+        label: Daily Briefings
+      - path: _todo
+        label: TODOs
+      - path: Projects
+        label: Projects
   explore:
     visible: false
 homepage:
@@ -210,12 +212,14 @@ homepage:
       visible: false
 ```
 
-### `favorites`
+### `sidebar.favorites.items`
 
 A list of vault-relative files or folders displayed on the home page, in the sidebar, and in the command palette. Each entry must define:
 
 - `path`: vault-relative file, folder, or internal route such as `_todo`.
 - `label`: display label used in the UI.
+
+Set `sidebar.favorites.visible` to `false` to hide favorites from all UI surfaces (sidebar, homepage quick-jump, and command palette).
 
 ### `daily_glob`
 
@@ -230,6 +234,8 @@ Default sort for folder pages. Accepted values: `name_asc` (default), `name_desc
 Controls sidebar UI sections while keeping the underlying internal routes available.
 
 - `sidebar.explore.visible`: set to `false` to hide the sidebar Explore section.
+- `sidebar.favorites.visible`: set to `false` to hide the sidebar Favorites section, homepage quick-jump favorites, and command palette favorites.
+- `sidebar.favorites.items`: a list of `{path, label}` entries for favorites shown in the sidebar, homepage, and command palette.
 
 ### `homepage`
 

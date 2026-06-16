@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ func makeVault(t *testing.T) *Vault {
 			t.Fatal(err)
 		}
 	}
-	must(".notes-web.yaml", "favorites:\n  - path: Areas/Daily Briefings\n    label: Daily Briefings\ndaily_glob: Areas/Daily Briefings/*-briefing.md\n")
+	must(".notes-web.yaml", "sidebar:\n  favorites:\n    items:\n      - path: Areas/Daily Briefings\n        label: Daily Briefings\ndaily_glob: Areas/Daily Briefings/*-briefing.md\n")
 	must("Areas/Daily Briefings/2026-05-22-briefing.md", "---\ntitle: Daily Briefing\ntags: [daily]\n---\n# Heading One\n\nHello [[Target|the target]] and [[Missing]].\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n```go\nfmt.Println(\"copy me\")\n```\n\n> [!note] A callout\n> body\n\n```mermaid\ngraph TD; A-->B;\n```\n")
 	must("Areas/Target.md", "# Target\n")
 	must("Areas/Work/Meeting Notes.md", "# Work\n")
@@ -52,7 +53,7 @@ func TestSafePathRejectsTraversal(t *testing.T) {
 
 func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Secret\n    label: Secret\n  - path: Areas/Hidden.md\n    label: Hidden\nhidden:\n  - Areas/Secret\n  - Areas/Hidden.md\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    items:\n      - path: Areas/Secret\n        label: Secret\n      - path: Areas/Hidden.md\n        label: Hidden\nhidden:\n  - Areas/Secret\n  - Areas/Hidden.md\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	secretDir := filepath.Join(v.Root, "Areas", "Secret")
@@ -89,7 +90,7 @@ func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 
 func TestFavoritesUseConfiguredPathAndLabel(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\n  - path: _todo\n    label: Todos\n  - path: Projects/\n    label: Projects\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    items:\n      - path: Areas/Daily Briefings\n        label: Briefings\n      - path: _todo\n        label: Todos\n      - path: Projects/\n        label: Projects\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,9 +109,22 @@ func TestFavoritesUseConfiguredPathAndLabel(t *testing.T) {
 	}
 }
 
+func TestTopLevelFavoritesConfigIsIgnored(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Legacy Briefings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, fav := range v.Favorites() {
+		if fav.Label == "Legacy Briefings" {
+			t.Fatalf("top-level favorites should be ignored, got %+v", v.Favorites())
+		}
+	}
+}
+
 func TestFavoriteRequiresConfiguredLabel(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: _todo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    items:\n      - path: _todo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +135,7 @@ func TestFavoriteRequiresConfiguredLabel(t *testing.T) {
 
 func TestStructuredUIVisibilityConfigHidesUIOnly(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\nsidebar:\n  explore:\n    visible: false\nhomepage:\n  blocks:\n    calendar:\n      visible: false\n    todos:\n      visible: false\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  explore:\n    visible: false\n  favorites:\n    items:\n      - path: Areas/Daily Briefings\n        label: Briefings\nhomepage:\n  blocks:\n    calendar:\n      visible: false\n    todos:\n      visible: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,9 +170,69 @@ func TestStructuredUIVisibilityConfigHidesUIOnly(t *testing.T) {
 	}
 }
 
+func TestSidebarFavoritesVisibleFalseHidesFavoritesFromSidebarHomeAndPalette(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    visible: false\n    items:\n      - path: Areas/Daily Briefings\n        label: My Briefings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if favs := v.Favorites(); len(favs) != 0 {
+		t.Fatalf("Favorites() should return empty when visible=false, got %+v", favs)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	// Sidebar: Favorites section heading and star icon should be absent
+	for _, unwanted := range []string{
+		`<h3>Favorites</h3>`,
+		`nav-icon-favorite`,
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("hidden favorites leaked %q in:\n%s", unwanted, body)
+		}
+	}
+
+	// Quick-jump: the hardcoded "Briefings" link is not a favorite;
+	// verify the configured favorite label "My Briefings" does not appear
+	if strings.Contains(body, `My Briefings`) {
+		t.Fatalf("quick-jump should not contain My Briefings favorite link:\n%s", body)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_api/palette", nil)
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("palette API status = %d, want %d", w.Code, http.StatusOK)
+	}
+	json := w.Body.String()
+	if strings.Contains(json, `"kind":"favorite"`) {
+		t.Fatalf("palette API should not include favorites when hidden, got:\n%s", json)
+	}
+}
+
+func TestHiddenBlocksFavoritesHidesFavorites(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - favorites\nsidebar:\n  favorites:\n    items:\n      - path: Areas/Daily Briefings\n        label: Briefings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if favs := v.Favorites(); len(favs) != 0 {
+		t.Fatalf("Favorites() should return empty when hidden_blocks includes favorites, got %+v", favs)
+	}
+
+	cfg := v.LoadConfig()
+	if !cfg.UI().HideSidebarFavorites {
+		t.Fatal("HideSidebarFavorites should be true when hidden_blocks includes favorites")
+	}
+}
+
 func TestHomepageTodoVisibilityDoesNotHideSidebarTodo(t *testing.T) {
 	v := makeVault(t)
-	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("favorites:\n  - path: Areas/Daily Briefings\n    label: Briefings\nhomepage:\n  blocks:\n    todos:\n      visible: false\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    items:\n      - path: Areas/Daily Briefings\n        label: Briefings\nhomepage:\n  blocks:\n    todos:\n      visible: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
