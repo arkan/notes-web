@@ -558,11 +558,13 @@ func TestDashboardSummarizesDailyTodosAndLinkHealth(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<h2>Open TODOs</h2>`,
+		`data-home-block="todos"`,
+		`Due now`,
+		`id="home-todo-overdue">Late`,
 		`Change Captur tires`,
 		`href="/_todo"`,
 		`Broken links`,
-		`Orphan notes`,
+		`orphan notes`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing dashboard markup %q in:\n%s", want, body)

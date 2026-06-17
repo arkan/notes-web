@@ -276,6 +276,27 @@ function initTagFilter() {
   });
 }
 
+function initHomepageProjectFilter() {
+  document.querySelectorAll('[data-home-project-filter]').forEach((input) => {
+    const block = input.closest('[data-home-block="active_projects"]') || document;
+    const rows = Array.from(block.querySelectorAll('[data-home-project-row]'));
+    const empty = block.querySelector('[data-home-project-empty]');
+    const apply = () => {
+      const q = (input.value || '').trim().toLowerCase();
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const haystack = (row.dataset.homeProjectSearchText || row.textContent || '').toLowerCase();
+        const visible = !q || haystack.includes(q);
+        row.hidden = !visible;
+        if (visible) visibleCount++;
+      });
+      if (empty) empty.hidden = visibleCount > 0 || rows.length === 0;
+    };
+    input.addEventListener('input', apply);
+    apply();
+  });
+}
+
 
 function readTodoFilterState() {
   try {
@@ -645,7 +666,7 @@ function showNotesMapPopup(canvas, point, left, top) {
   popup.innerHTML = '<strong><a href="' + escapeHTML(point.url || '#') + '">' + escapeHTML(point.title || 'Untitled') + '</a></strong>' + bits.map(b => '<small>' + escapeHTML(b) + '</small>').join('') + (point.website ? '<a class="notes-map-popup-link" href="' + escapeHTML(point.website) + '">Website</a>' : '') + (point.mapUrl ? '<a class="notes-map-popup-link" href="' + escapeHTML(point.mapUrl) + '">Map</a>' : '');
   canvas.appendChild(popup);
 }
-document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initTodoActions(); initTodoFilters();
+document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initListFilters(); initHomepageProjectFilter(); initTodoActions(); initTodoFilters();
   initDataviewTables(); initNotesMaps(); });
 document.addEventListener('click', async (ev) => {
   const codeCopy = ev.target.closest('[data-copy-code]');

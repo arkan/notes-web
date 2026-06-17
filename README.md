@@ -205,21 +205,53 @@ sidebar:
   explore:
     visible: false
 homepage:
+  order:
+    - today
+    - quick_jump
+    - todos
+    - active_projects
+    - calendar
+    - selected_day
+    - recent_notes
+    - diagnostics
   blocks:
+    today:
+      visible: true
+    quick_jump:
+      visible: true
+      items:
+        - label: Today
+          path: /
+        - label: TODO
+          path: /_todo
+        - label: Search
+          path: /_search
+        - label: Daily Briefings
+          path: Areas/Daily Briefings
     todos:
-      visible: false
+      visible: true
+    active_projects:
+      visible: true
+      limit: 20
     calendar:
-      visible: false
+      visible: true
+    selected_day:
+      visible: true
+    recent_notes:
+      visible: true
+      limit: 10
+    diagnostics:
+      visible: true
 ```
 
 ### `sidebar.favorites.items`
 
-A list of vault-relative files or folders displayed on the home page, in the sidebar, and in the command palette. Each entry must define:
+A list of vault-relative files or folders displayed in the sidebar and command palette. Each entry must define:
 
 - `path`: vault-relative file, folder, or internal route such as `_todo`.
 - `label`: display label used in the UI.
 
-Set `sidebar.favorites.visible` to `false` to hide favorites from all UI surfaces (sidebar, homepage quick-jump, and command palette).
+Set `sidebar.favorites.visible` to `false` to hide favorites from the sidebar and command palette. The home page quick-jump block is configured separately with `homepage.blocks.quick_jump.items`.
 
 ### `daily_glob`
 
@@ -234,15 +266,22 @@ Default sort for folder pages. Accepted values: `name_asc` (default), `name_desc
 Controls sidebar UI sections while keeping the underlying internal routes available.
 
 - `sidebar.explore.visible`: set to `false` to hide the sidebar Explore section.
-- `sidebar.favorites.visible`: set to `false` to hide the sidebar Favorites section, homepage quick-jump favorites, and command palette favorites.
-- `sidebar.favorites.items`: a list of `{path, label}` entries for favorites shown in the sidebar, homepage, and command palette.
+- `sidebar.favorites.visible`: set to `false` to hide the sidebar Favorites section and command palette favorites.
+- `sidebar.favorites.items`: a list of `{path, label}` entries for favorites shown in the sidebar and command palette.
 
 ### `homepage`
 
 Controls home page blocks while keeping the underlying internal routes available.
 
-- `homepage.blocks.todos.visible`: set to `false` to hide the home page TODO summary and quick jump.
-- `homepage.blocks.calendar.visible`: set to `false` to hide the home page calendar card.
+- `homepage.order`: optional list of block IDs for homepage ordering. Unknown IDs are ignored; missing valid blocks are appended at the end in default order. Default: `today, quick_jump, todos, active_projects, calendar, selected_day, recent_notes, diagnostics`.
+- `homepage.blocks.<id>.visible`: set to `false` to hide a specific homepage block. All blocks visible by default.
+- `homepage.blocks.active_projects.limit`: max projects shown on homepage (default `20`).
+- `homepage.blocks.recent_notes.limit`: max recent notes shown on homepage (default `10`).
+- `homepage.blocks.quick_jump.items`: list of `{label, path}` entries for the quick-jump block. Internal routes like `/_todo` and vault paths like `Areas/...` are supported. Absent `items` uses defaults; explicit `items: []` shows no links.
+- `homepage.blocks.todos.visible`: set to `false` to hide the home page TODO summary.
+- `homepage.blocks.calendar.visible`: set to `false` to hide the home page calendar card. Does not affect `selected_day`.
+- `homepage.blocks.selected_day.visible`: set to `false` to hide the selected day notes. Does not affect `calendar`.
+- `homepage.blocks.diagnostics.visible`: set to `false` to hide the broken-links and orphan-notes diagnostic block.
 
 ## Command-line options
 

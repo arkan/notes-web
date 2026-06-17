@@ -212,12 +212,15 @@ func (v *Vault) BuildDashboardFor(selectedOverride time.Time) (Dashboard, error)
 	if selected.IsZero() {
 		selected = selectedDashboardDate(latestDaily)
 	}
+	cfg := v.LoadConfig()
+	activeLimit := cfg.Homepage.Blocks.ActiveProjects.LimitOrDefault(20)
+	recentLimit := cfg.Homepage.Blocks.RecentNotes.LimitOrDefault(10)
 	d := Dashboard{
 		LatestDaily:     latestDaily,
 		SelectedDate:    selected.Format("2006-01-02"),
 		TodayLabel:      selected.Format("Monday, January 2"),
-		ActiveProjects:  v.ActiveProjects(idx, 6),
-		RecentNotes:     recentNoteMetas(idx, 5),
+		ActiveProjects:  v.ActiveProjects(idx, activeLimit),
+		RecentNotes:     recentNoteMetas(idx, recentLimit),
 		Calendar:        v.MonthCalendar(idx, selected),
 		SelectedDay:     selectedDaySummary(idx, selected),
 		BrokenLinkCount: CountBrokenWikiLinks(idx, resolver),

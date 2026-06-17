@@ -314,6 +314,43 @@ func TestVisualPolishFoundationAndPaletteStates(t *testing.T) {
 	}
 }
 
+func TestHomepageProjectFilterClientContract(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`data-home-block="active_projects"`,
+		`data-home-project-filter`,
+		`data-home-project-row`,
+		`data-home-project-search-text`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing homepage project filter markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function initHomepageProjectFilter()",
+		"data-home-project-filter",
+		"data-home-project-row",
+		"dataset.homeProjectSearchText",
+		"row.hidden = !visible",
+		"initHomepageProjectFilter();",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing homepage project filter JS %q in:\n%s", want, js)
+		}
+	}
+}
+
 func TestSearchResultsAreRichAndEmptyStateIsHelpful(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
