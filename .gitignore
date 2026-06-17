@@ -3,3 +3,4 @@ bin/
 *.log
 /tmp/
 /docs/plans
+.slim/deepwork/

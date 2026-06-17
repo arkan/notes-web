@@ -152,10 +152,9 @@ func TestStructuredUIVisibilityConfigHidesUIOnly(t *testing.T) {
 	body := w.Body.String()
 	for _, unwanted := range []string{
 		`<h3>Explore</h3>`,
-		`class="home-calendar card"`,
-		`class="open-todos card"`,
-		`href="/_todo"`,
-		`Open TODOs`,
+		`data-home-block="calendar"`,
+		`data-home-block="todos"`,
+		`Open TODO dashboard`,
 	} {
 		if strings.Contains(body, unwanted) {
 			t.Fatalf("hidden UI block leaked %q in:\n%s", unwanted, body)
@@ -241,7 +240,7 @@ func TestHomepageTodoVisibilityDoesNotHideSidebarTodo(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
-	if strings.Contains(body, `class="open-todos card"`) {
+	if strings.Contains(body, `data-home-block="todos"`) {
 		t.Fatalf("homepage TODO block should be hidden:\n%s", body)
 	}
 	if !strings.Contains(body, `<h3>Explore</h3>`) || !strings.Contains(body, `href="/_todo"`) {
@@ -813,19 +812,24 @@ func TestHomeDashboardUsesCalendarActiveProjectsAndRecentNotes(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<div class="home-dashboard">`,
-		`<section class="today-card card">`,
-		`Friday, May 22`,
-		`<section class="active-projects card">`,
+		`<div class="home-dashboard" data-home-dashboard>`,
+		`<div class="home-main" data-home-column-stack="main">`,
+		`<aside class="home-side" data-home-column-stack="side">`,
+		`data-home-block="today" data-home-column="main"`,
+		`data-home-block="active_projects" data-home-column="main"`,
+		`data-home-project-filter`,
+		`data-home-project-row`,
+		`class="active-project-link"`,
 		`France-Publications`,
 		`Notes-web`,
-		`<aside class="home-calendar card">`,
+		`data-home-block="calendar" data-home-column="side"`,
 		`May 2026`,
 		`class="calendar-day has-note selected" href="/?date=2026-05-22" aria-label="2026-05-22">22</a>`,
 		`class="calendar-day today" href="/?date=2026-05-23" aria-label="2026-05-23">23</a>`,
-		`<section class="selected-day card">`,
-		`<section class="quick-jump card">`,
-		`<section class="recent-notes card">`,
+		`data-home-block="selected_day" data-home-column="side"`,
+		`Friday, May 22`,
+		`data-home-block="quick_jump" data-home-column="side"`,
+		`data-home-block="recent_notes" data-home-column="main"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing dashboard homepage markup %q in:\n%s", want, body)
@@ -887,6 +891,757 @@ func TestHomeDashboardDateQuerySelectsCalendarDay(t *testing.T) {
 	}
 }
 
+func TestHomepageBlockRenderingUsesConfiguredBlocksAndQuickJumpItems(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Custom Jump\n          path: Areas/Target.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	for _, id := range []string{"today", "quick_jump", "todos", "active_projects", "calendar", "selected_day", "recent_notes", "diagnostics"} {
+		marker := `data-home-block="` + id + `"`
+		if count := strings.Count(body, marker); count != 1 {
+			t.Fatalf("homepage block %q should render exactly once, got %d in:\n%s", id, count, body)
+		}
+	}
+	if count := strings.Count(body, `data-home-order="`); count != 8 {
+		t.Fatalf("each homepage block should expose a global mobile order, got %d markers in:\n%s", count, body)
+	}
+	if count := strings.Count(body, `--home-block-order:`); count != 8 {
+		t.Fatalf("each homepage block should expose a CSS order variable, got %d markers in:\n%s", count, body)
+	}
+	if !strings.Contains(body, `class="home-shortcut" href="/Areas/Target.md"`) || !strings.Contains(body, `Custom Jump`) {
+		t.Fatalf("configured quick-jump link should render in homepage block:\n%s", body)
+	}
+	if count := strings.Count(body, `class="home-shortcut"`); count != 1 {
+		t.Fatalf("quick-jump should render only configured homepage links, got %d shortcuts:\n%s", count, body)
+	}
+	if strings.Contains(body, `<a class="active-project-row"`) {
+		t.Fatalf("active project rows must not be anchors wrapping nested links:\n%s", body)
+	}
+}
+
+func TestHomepageQuickJumpEmptyState(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    quick_jump:\n      items: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `data-home-block="quick_jump"`) || !strings.Contains(body, `No shortcuts configured.`) {
+		t.Fatalf("empty quick-jump should render an empty state:\n%s", body)
+	}
+	if strings.Contains(body, `class="home-shortcut"`) {
+		t.Fatalf("explicit empty quick-jump config should not render shortcuts:\n%s", body)
+	}
+}
+
+func TestHomepageTodayPreviewAndEmptyState(t *testing.T) {
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{`data-home-block="today"`, `2026-05-22`, `class="home-today-preview content"`, `Heading One`, `Open full note`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing today preview markup %q in:\n%s", want, body)
+		}
+	}
+
+	now = func() time.Time { return time.Date(2099, 1, 1, 12, 0, 0, 0, time.Local) }
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	if !strings.Contains(body, `2099-01-01`) || !strings.Contains(body, `No daily note for today.`) {
+		t.Fatalf("today block should show empty state when no daily note exists:\n%s", body)
+	}
+}
+
+func TestHomepageTodosRenderOnlyOverdueAndTodaySections(t *testing.T) {
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	v := makeVault(t)
+	todoPath := filepath.Join(v.Root, "Areas", "TODO.md")
+	f, err := os.OpenFile(todoPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("- [ ] Pay invoice #admin 📅 2026-05-20 <!-- tid:today123 -->\n- [ ] Plan trip #travel 📅 2026-06-01 <!-- tid:future123 -->\n- [ ] Read later #inbox <!-- tid:nodate123 -->\n")
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{`data-home-block="todos"`, `class="todo-section overdue"`, `id="home-todo-overdue">Late`, `class="todo-section today"`, `id="home-todo-today">Today`, `today123`, `Change Captur tires`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing homepage TODO markup %q in:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`todo-section upcoming`, `todo-section no-date`, `todo-section done`, `future123`, `nodate123`, `149d256b`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("homepage TODO block should not include %q:\n%s", unwanted, body)
+		}
+	}
+}
+
+func TestHomepageOrderDefaultIncludesAllBlocks(t *testing.T) {
+	v := makeVault(t)
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	ids := make([]string, len(blocks))
+	for i, b := range blocks {
+		ids[i] = b.ID
+	}
+	want := []string{"today", "quick_jump", "todos", "active_projects", "calendar", "selected_day", "recent_notes", "diagnostics"}
+	if len(ids) != len(want) {
+		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(want), want)
+	}
+	for i, id := range ids {
+		if id != want[i] {
+			t.Fatalf("block[%d] = %q, want %q", i, id, want[i])
+		}
+	}
+}
+
+func TestHomepageOrderSkipsUnknownIDsAndAppendsMissing(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  order:\n    - today\n    - nonexistent_block\n    - diagnostics\n    - todos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	ids := make([]string, len(blocks))
+	for i, b := range blocks {
+		ids[i] = b.ID
+	}
+	// expected: today, diagnostics, todos, then remaining defaults in order
+	expected := []string{"today", "diagnostics", "todos", "quick_jump", "active_projects", "calendar", "selected_day", "recent_notes"}
+	if len(ids) != len(expected) {
+		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(expected), expected)
+	}
+	for i, id := range ids {
+		if id != expected[i] {
+			t.Fatalf("block[%d] = %q, want %q", i, id, expected[i])
+		}
+	}
+}
+
+func TestHomepageBlockColumns(t *testing.T) {
+	v := makeVault(t)
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	mainIDs := map[string]bool{"today": true, "todos": true, "active_projects": true, "recent_notes": true}
+	for _, b := range blocks {
+		if mainIDs[b.ID] && b.Column != "main" {
+			t.Fatalf("block %q should be in main column, got %q", b.ID, b.Column)
+		}
+		if !mainIDs[b.ID] && b.Column != "side" {
+			t.Fatalf("block %q should be in side column, got %q", b.ID, b.Column)
+		}
+	}
+}
+
+func TestHomepageViewDesktopColumnStacks(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  order:\n    - quick_jump\n    - today\n    - calendar\n    - todos\n    - selected_day\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	hv := s.buildHomepageView(v.LoadConfig(), Dashboard{})
+	for i, b := range hv.Blocks {
+		if b.Order != i {
+			t.Fatalf("block %q order = %d, want %d in %+v", b.ID, b.Order, i, hv.Blocks)
+		}
+	}
+	mainIDs := make([]string, len(hv.MainBlocks))
+	for i, b := range hv.MainBlocks {
+		mainIDs[i] = b.ID
+		if b.Column != "main" {
+			t.Fatalf("main stack contains side block: %+v", hv.MainBlocks)
+		}
+	}
+	sideIDs := make([]string, len(hv.SideBlocks))
+	for i, b := range hv.SideBlocks {
+		sideIDs[i] = b.ID
+		if b.Column != "side" {
+			t.Fatalf("side stack contains main block: %+v", hv.SideBlocks)
+		}
+	}
+	if got, want := strings.Join(mainIDs, ","), "today,todos,active_projects,recent_notes"; got != want {
+		t.Fatalf("main stack order = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(sideIDs, ","), "quick_jump,calendar,selected_day,diagnostics"; got != want {
+		t.Fatalf("side stack order = %q, want %q", got, want)
+	}
+	if hv.SideBlocks[0].Order != 0 || hv.MainBlocks[0].Order != 1 || hv.SideBlocks[1].Order != 2 || hv.MainBlocks[1].Order != 3 {
+		t.Fatalf("column stacks should keep original global order indices, main=%+v side=%+v", hv.MainBlocks, hv.SideBlocks)
+	}
+}
+
+func TestHomepageBlockVisibility(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    today:\n      visible: false\n    todos:\n      visible: false\n    calendar:\n      visible: false\n    active_projects:\n      visible: false\n    recent_notes:\n      visible: false\n    diagnostics:\n      visible: false\n    selected_day:\n      visible: false\n    quick_jump:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	if len(blocks) != 0 {
+		t.Fatalf("expected 0 blocks when all are hidden, got %+v", blocks)
+	}
+}
+
+func TestHomepageBlockTodayVisibility(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    today:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	for _, b := range blocks {
+		if b.ID == "today" {
+			t.Fatalf("today block should be hidden when visible=false, got %+v", blocks)
+		}
+	}
+	// All other blocks should still be present
+	found := map[string]bool{}
+	for _, b := range blocks {
+		found[b.ID] = true
+	}
+	for _, id := range []string{"quick_jump", "todos", "active_projects", "calendar", "selected_day", "recent_notes", "diagnostics"} {
+		if !found[id] {
+			t.Fatalf("block %q should still be visible when only today is hidden: %+v", id, blocks)
+		}
+	}
+}
+
+func TestHomepageOrderFiltersHiddenBlocks(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  order:\n    - todos\n    - calendar\n    - today\n  blocks:\n    todos:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	blocks := cfg.OrderedVisibleBlocks()
+	ids := make([]string, len(blocks))
+	for i, b := range blocks {
+		ids[i] = b.ID
+	}
+	// todos is hidden, so we should get: calendar, today, then the rest in default order
+	expected := []string{"calendar", "today", "quick_jump", "active_projects", "selected_day", "recent_notes", "diagnostics"}
+	if len(ids) != len(expected) {
+		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(expected), expected)
+	}
+	for i, id := range ids {
+		if id != expected[i] {
+			t.Fatalf("block[%d] = %q, want %q", i, id, expected[i])
+		}
+	}
+}
+
+func TestLegacyHomepageBlockTodoAliasIgnored(t *testing.T) {
+	v := makeVault(t)
+	// The old "todo" key should NOT be parsed by Config — only "todos" is canonical.
+	// Write a config with both legacy todo and canonical todos visible=false.
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    todo:\n      visible: false\n    todos:\n      visible: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	// canonical todos should be visible (not hidden)
+	if cfg.Homepage.Blocks.Todos.Hidden() {
+		t.Fatal("canonical todos should NOT be hidden when only legacy todo is set to false")
+	}
+	if cfg.UI().HideHomepageTodos {
+		t.Fatal("HideHomepageTodos should be false when only legacy todo is hidden")
+	}
+}
+
+func TestQuickJumpDefaults(t *testing.T) {
+	v := makeVault(t)
+	items := v.QuickJumpItems()
+	if len(items) != 4 {
+		t.Fatalf("default quick-jump should have 4 items, got %d: %+v", len(items), items)
+	}
+	expected := []struct{ label, url string }{
+		{"Today", "/"},
+		{"TODO", "/_todo"},
+		{"Search", "/_search"},
+		{"Daily Briefings", "/Areas/Daily%20Briefings"},
+	}
+	for i, want := range expected {
+		if items[i].Label != want.label || items[i].URL != want.url {
+			t.Fatalf("item[%d] = %+v, want label=%q url=%q", i, items[i], want.label, want.url)
+		}
+	}
+}
+
+func TestQuickJumpExplicitEmpty(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    quick_jump:\n      items: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 0 {
+		t.Fatalf("explicit empty quick_jump should return 0 items, got %d: %+v", len(items), items)
+	}
+}
+
+func TestQuickJumpCustomItems(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: My Label\n          path: /custom\n        - label: Vault Path\n          path: Areas/Target.md\n        - label: TODO\n          path: _todo\n        - label: \"\"\n          path: /empty-label\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	// Should skip empty label, keep the rest (3 items)
+	if len(items) != 3 {
+		t.Fatalf("expected 3 quick-jump items (empty label skipped), got %d: %+v", len(items), items)
+	}
+	if items[0].Label != "My Label" || items[0].URL != "/custom" {
+		t.Fatalf("item[0] = %+v, want label=My Label url=/custom", items[0])
+	}
+	if items[1].Label != "Vault Path" || items[1].URL != "/Areas/Target.md" {
+		t.Fatalf("item[1] = %+v, want url=/Areas/Target.md", items[1])
+	}
+	if items[2].Label != "TODO" || items[2].URL != "/_todo" {
+		t.Fatalf("item[2] = %+v, want url=/_todo", items[2])
+	}
+}
+
+func TestQuickJumpSkipsHiddenVaultPath(t *testing.T) {
+	v := makeVault(t)
+	// Create a hidden file and reference it in quick_jump
+	if err := os.WriteFile(filepath.Join(v.Root, "Areas", "Secret.md"), []byte("# Secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - Areas/Secret.md\nhomepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Secret\n          path: Areas/Secret.md\n        - label: Visible\n          path: Areas/Target.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].Label != "Visible" {
+		t.Fatalf("expected only visible item, got %+v", items)
+	}
+}
+
+func TestQuickJumpSkipsTODOWhenHidden(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - todo\nhomepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: TODO\n          path: _todo\n        - label: Search\n          path: _search\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].Label != "Search" {
+		t.Fatalf("expected only Search item when todo hidden, got %+v", items)
+	}
+}
+
+func TestHiddenBlocksCalendarHidesOnlyCalendar(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - calendar\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	if !cfg.UI().HideHomepageCalendar {
+		t.Fatal("HideHomepageCalendar should be true when hidden_blocks includes calendar")
+	}
+	// selected_day should still be visible
+	if cfg.Homepage.Blocks.SelectedDay.Hidden() {
+		t.Fatal("selected_day should NOT be hidden when only calendar is hidden")
+	}
+	blocks := cfg.OrderedVisibleBlocks()
+	for _, b := range blocks {
+		if b.ID == "selected_day" {
+			return // found it
+		}
+	}
+	t.Fatalf("selected_day block should appear in OrderedVisibleBlocks when only calendar is hidden: %+v", blocks)
+}
+
+func TestHiddenBlocksTodosHidesHomepageAndSidebarTodo(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - todos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	// hidden_blocks: [todos] normalizes to "todo" and hides both homepage and sidebar TODO
+	if !cfg.UI().HideHomepageTodos {
+		t.Fatal("HideHomepageTodos should be true when hidden_blocks includes todos")
+	}
+	if !cfg.UI().HideSidebarTodo {
+		t.Fatal("HideSidebarTodo should ALSO be true when hidden_blocks includes todos (normalizes to 'todo')")
+	}
+}
+
+func TestHiddenBlocksTodoSingularAlsoHidesBoth(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - todo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	if !cfg.UI().HideHomepageTodos {
+		t.Fatal("HideHomepageTodos should be true when hidden_blocks includes todo")
+	}
+	if !cfg.UI().HideSidebarTodo {
+		t.Fatal("HideSidebarTodo should be true when hidden_blocks includes todo")
+	}
+}
+
+func TestHiddenBlocksFavoritesDoesNotHideQuickJump(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - favorites\nhomepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Custom\n          path: /custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Quick-jump items should still be accessible (not driven by sidebar favorites)
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].Label != "Custom" {
+		t.Fatalf("quick-jump should still work when favorites are hidden, got %+v", items)
+	}
+}
+
+func TestHomepageViewTodoBucketsOverdueAndTodayOnly(t *testing.T) {
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	v := makeVault(t)
+	// Append more tasks to test
+	todoPath := filepath.Join(v.Root, "Areas", "TODO.md")
+	f, err := os.OpenFile(todoPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("- [ ] Pay invoice #admin 📅 2026-05-20 <!-- tid:today123 -->\n- [ ] Plan trip #travel 📅 2026-06-01 <!-- tid:future123 -->\n- [ ] Read later #inbox <!-- tid:nodate123 -->\n")
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	hv := s.buildHomepageView(v.LoadConfig(), Dashboard{})
+
+	if len(hv.TodoOverdue) != 1 || hv.TodoOverdue[0].ID != "1c496356" {
+		t.Fatalf("expected 1 overdue task (Change Captur tires), got %+v", hv.TodoOverdue)
+	}
+	if len(hv.TodoToday) != 1 || hv.TodoToday[0].ID != "today123" {
+		t.Fatalf("expected 1 today task (Pay invoice), got %+v", hv.TodoToday)
+	}
+	// No upcoming, no-date, or done should appear
+	taskIDs := map[string]bool{}
+	for _, t := range hv.TodoOverdue {
+		taskIDs[t.ID] = true
+	}
+	for _, t := range hv.TodoToday {
+		taskIDs[t.ID] = true
+	}
+	if taskIDs["future123"] {
+		t.Fatal("upcoming task should not appear in homepage view")
+	}
+	if taskIDs["nodate123"] {
+		t.Fatal("no-date task should not appear in homepage view")
+	}
+	if taskIDs["149d256b"] {
+		t.Fatal("done task should not appear in homepage view")
+	}
+}
+
+func TestDailyForDateSelectsByNowDateNotLatestModified(t *testing.T) {
+	v := makeVault(t)
+	// Create a daily note for today and one for tomorrow (latest modified)
+	todayStr := time.Now().Format("2006-01-02")
+	tomorrowStr := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+
+	writeDaily := func(dateStr string, body string) {
+		p := filepath.Join(v.Root, "Areas", "Daily Briefings", dateStr+"-briefing.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Make tomorrow's note newer
+		if dateStr == tomorrowStr {
+			mt := time.Now().Add(1 * time.Hour)
+			if err := os.Chtimes(p, mt, mt); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	writeDaily(todayStr, "# Today Note\n")
+	writeDaily(tomorrowStr, "# Tomorrow Note\n")
+
+	// DailyForDate should find today's note even though tomorrow's is newer
+	note := v.DailyForDate(todayStr)
+	if note == nil {
+		t.Fatalf("DailyForDate(%q) should find today's note", todayStr)
+	}
+	if !strings.Contains(note.Body, "# Today Note") {
+		t.Fatalf("DailyForDate returned wrong note: %+v", note)
+	}
+
+	// Should return nil for dates without a daily
+	missing := v.DailyForDate("1999-01-01")
+	if missing != nil {
+		t.Fatalf("DailyForDate for non-existent date should return nil, got %+v", missing)
+	}
+}
+
+func TestActiveProjectsLimitDefaultAndConfigured(t *testing.T) {
+	v := makeVault(t)
+	// Default limit should be 20
+	cfg := v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.ActiveProjects.LimitOrDefault(20); limit != 20 {
+		t.Fatalf("default active projects limit should be 20, got %d", limit)
+	}
+	// Configured limit
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    active_projects:\n      limit: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.ActiveProjects.LimitOrDefault(20); limit != 3 {
+		t.Fatalf("configured active projects limit should be 3, got %d", limit)
+	}
+	// Non-positive limit uses default
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    active_projects:\n      limit: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.ActiveProjects.LimitOrDefault(20); limit != 20 {
+		t.Fatalf("zero active projects limit should use default 20, got %d", limit)
+	}
+	// Negative limit uses default
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    active_projects:\n      limit: -5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.ActiveProjects.LimitOrDefault(20); limit != 20 {
+		t.Fatalf("negative active projects limit should use default 20, got %d", limit)
+	}
+}
+
+func TestRecentNotesLimitDefaultAndConfigured(t *testing.T) {
+	v := makeVault(t)
+	cfg := v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.RecentNotes.LimitOrDefault(10); limit != 10 {
+		t.Fatalf("default recent notes limit should be 10, got %d", limit)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    recent_notes:\n      limit: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.RecentNotes.LimitOrDefault(10); limit != 5 {
+		t.Fatalf("configured recent notes limit should be 5, got %d", limit)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    recent_notes:\n      limit: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if limit := cfg.Homepage.Blocks.RecentNotes.LimitOrDefault(10); limit != 10 {
+		t.Fatalf("zero recent notes limit should use default 10, got %d", limit)
+	}
+}
+
+func TestHomepageViewBlocksPresentInTemplateData(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	// The HomepageView should drive the rendered homepage and keep legacy template keys available.
+	body := w.Body.String()
+	if !strings.Contains(body, `class="home-dashboard"`) {
+		t.Fatalf("homepage dashboard should still render with existing template:\n%s", body)
+	}
+}
+
+func TestHomepageQuickJumpItemsResolvedInServerHome(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Custom Jump\n          path: Areas/Target.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].URL != "/Areas/Target.md" {
+		t.Fatalf("custom quick-jump item not resolved correctly: %+v", items)
+	}
+}
+
+func TestHomepageBlockCalendarSelectedDayIndependence(t *testing.T) {
+	v := makeVault(t)
+	// Hide calendar only
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    calendar:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := v.LoadConfig()
+	if !cfg.Homepage.Blocks.Calendar.Hidden() {
+		t.Fatal("calendar should be hidden")
+	}
+	if cfg.Homepage.Blocks.SelectedDay.Hidden() {
+		t.Fatal("selected_day should NOT be hidden when only calendar is hidden")
+	}
+	blocks := cfg.OrderedVisibleBlocks()
+	foundSelectedDay := false
+	for _, b := range blocks {
+		if b.ID == "selected_day" {
+			foundSelectedDay = true
+		}
+		if b.ID == "calendar" {
+			t.Fatal("calendar block should be absent from OrderedVisibleBlocks")
+		}
+	}
+	if !foundSelectedDay {
+		t.Fatal("selected_day should still be in OrderedVisibleBlocks")
+	}
+
+	// Hide selected_day only
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("homepage:\n  blocks:\n    selected_day:\n      visible: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg = v.LoadConfig()
+	if cfg.Homepage.Blocks.Calendar.Hidden() {
+		t.Fatal("calendar should NOT be hidden when only selected_day is hidden")
+	}
+	if !cfg.Homepage.Blocks.SelectedDay.Hidden() {
+		t.Fatal("selected_day should be hidden")
+	}
+	blocks = cfg.OrderedVisibleBlocks()
+	foundCalendar := false
+	for _, b := range blocks {
+		if b.ID == "selected_day" {
+			t.Fatal("selected_day block should be absent")
+		}
+		if b.ID == "calendar" {
+			foundCalendar = true
+		}
+	}
+	if !foundCalendar {
+		t.Fatal("calendar should still be in OrderedVisibleBlocks")
+	}
+}
+
+func TestQuickJumpDefaultsRespectHiddenBlocksTodo(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - todo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	// TODO item should be filtered out, default items: Today, Search, Daily Briefings
+	if len(items) != 3 {
+		t.Fatalf("default quick-jump should have 3 items when todo is hidden, got %d: %+v", len(items), items)
+	}
+	for _, item := range items {
+		if item.Label == "TODO" || item.URL == "/_todo" {
+			t.Fatalf("TODO should not appear in quick-jump when hidden_blocks hides todo: %+v", items)
+		}
+	}
+}
+
+func TestQuickJumpDefaultsRespectHiddenBlocksTodos(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden_blocks:\n  - todos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 3 {
+		t.Fatalf("default quick-jump should have 3 items when todos is hidden, got %d: %+v", len(items), items)
+	}
+	for _, item := range items {
+		if item.Label == "TODO" || item.URL == "/_todo" {
+			t.Fatalf("TODO should not appear when hidden_blocks hides todos: %+v", items)
+		}
+	}
+}
+
+func TestQuickJumpDefaultDailyBriefingsHidden(t *testing.T) {
+	v := makeVault(t)
+	// Hide Areas/Daily Briefings path
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - Areas/Daily Briefings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	// Default items: Today, TODO, Search (Daily Briefings path is hidden)
+	if len(items) != 3 {
+		t.Fatalf("expected 3 default items when Daily Briefings is hidden, got %d: %+v", len(items), items)
+	}
+	for _, item := range items {
+		if item.Label == "Daily Briefings" {
+			t.Fatalf("Daily Briefings should be skipped when its vault path is hidden: %+v", items)
+		}
+	}
+}
+
+func TestQuickJumpSlashPrefixedVaultPathRespectsHidden(t *testing.T) {
+	v := makeVault(t)
+	// Create a hidden file
+	if err := os.WriteFile(filepath.Join(v.Root, "Areas", "Secret.md"), []byte("# Secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - Areas/Secret.md\nhomepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Secret\n          path: /Areas/Secret.md\n        - label: Visible\n          path: /Areas/Target.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].Label != "Visible" {
+		t.Fatalf("expected only Visible item when /Areas/Secret.md is hidden, got %+v", items)
+	}
+	if items[0].URL != "/Areas/Target.md" {
+		t.Fatalf("Visible item URL should be /Areas/Target.md, got %q", items[0].URL)
+	}
+}
+
+func TestQuickJumpUnderscorePrefixedVaultPathRespectsHidden(t *testing.T) {
+	v := makeVault(t)
+	if err := os.WriteFile(filepath.Join(v.Root, "_secret.md"), []byte("# Secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - _secret.md\nhomepage:\n  blocks:\n    quick_jump:\n      items:\n        - label: Secret\n          path: /_secret.md\n        - label: Todo\n          path: /_todo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := v.QuickJumpItems()
+	if len(items) != 1 || items[0].URL != "/_todo" {
+		t.Fatalf("expected hidden /_secret.md to be filtered while /_todo stays internal, got %+v", items)
+	}
+}
+
+func TestHomepageViewDashboardConsistentWithDateQuery(t *testing.T) {
+	v := makeVault(t)
+	// Patch now() for deterministic date
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 5, 23, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/?date=2026-05-21", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	// The old .Dashboard key should show the selected date
+	if !strings.Contains(body, `Thursday, May 21`) {
+		t.Fatalf("dashboard should show selected date Thursday, May 21:\n%s", body)
+	}
+	// The quick-jump block should still be present (structural marker)
+	if !strings.Contains(body, `data-home-block="quick_jump"`) {
+		t.Fatalf("quick-jump card should still be present:\n%s", body)
+	}
+}
+
 func TestHomeDashboardCSSDefinesTwoColumnCalendarLayout(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")
@@ -895,16 +1650,26 @@ func TestHomeDashboardCSSDefinesTwoColumnCalendarLayout(t *testing.T) {
 	s.ServeHTTP(w, r)
 	css := w.Body.String()
 	for _, want := range []string{
-		`.home-dashboard{display:grid;grid-template-columns:minmax(0,1fr) 280px`,
-		`.home-main{min-width:0;display:grid;gap:18px}`,
+		`.home-dashboard{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px)`,
+		`.home-main,.home-side{min-width:0;display:grid;gap:18px;align-content:start}`,
+		`.home-side{position:sticky;top:18px}`,
+		`@media(max-width:900px){.home-dashboard{grid-template-columns:1fr}`,
+		`.home-main,.home-side{display:contents}`,
+		`.home-block{order:var(--home-block-order,0)}`,
+		`.home-side{position:static}`,
 		`.home-calendar`,
 		`.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))`,
 		`.calendar-day.selected`,
 		`.active-project-row`,
-		`@media (max-width: 900px)`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("missing homepage calendar/project CSS %q in:\n%s", want, css)
 		}
+	}
+	if strings.Contains(css, `grid-auto-flow:dense`) || strings.Contains(css, `grid-auto-flow: dense`) {
+		t.Fatalf("homepage grid must not use dense auto-placement:\n%s", css)
+	}
+	if strings.Contains(css, `.home-block[data-home-column=main]{grid-column`) || strings.Contains(css, `.home-block[data-home-column=side]{grid-column`) {
+		t.Fatalf("homepage desktop packing should use column stacks, not per-block grid-column rules:\n%s", css)
 	}
 }

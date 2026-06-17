@@ -1,1 +1,217 @@
-{{define "home"}}{{template "layout-start" .}}<div class="page-header"><div><p class="eyebrow">Overview</p><h1>Home</h1></div><button class="copy-link btn ghost" data-copy-link>Copy link</button></div>{{if .Err}}<p class="error">{{.Err}}</p>{{end}}<div class="home-dashboard"><div class="home-main"><section class="today-card card"><p class="eyebrow">Today</p><h2>{{.Dashboard.TodayLabel}}</h2>{{with .Dashboard.LatestDaily}}<p class="muted">Daily briefing</p><a class="biglink" href="{{url .RelPath}}">{{.RelPath}}</a><div class="card-actions"><a class="btn primary" href="{{url .RelPath}}">Open briefing</a></div>{{else}}<p class="empty-state">No daily briefing found.</p>{{end}}</section>{{if not .UI.HideHomepageTodos}}<section class="open-todos card"><h2>Open TODOs</h2><a class="biglink" href="/_todo">Open TODO dashboard</a>{{if .Dashboard.OpenTasks}}<ul class="compact-list">{{range .Dashboard.OpenTasks}}<li><a href="{{.SourceURL}}">{{.Text}}</a>{{if .Due}} <small>Due {{.Due}}</small>{{end}}</li>{{end}}</ul>{{else}}<p class="empty-state">No open tasks.</p>{{end}}</section>{{end}}<section class="active-projects card"><div class="section-heading"><div><p class="eyebrow">Continue</p><h2>Active projects</h2></div><span class="count">{{len .Dashboard.ActiveProjects}}</span></div><div class="active-project-list">{{range .Dashboard.ActiveProjects}}<a class="active-project-row" href="{{.URL}}"><span><strong>{{.Label}}</strong><small>{{.Description}} · {{.NoteCount}} notes · latest: {{.LatestTitle}}</small></span><em>{{.Updated}}</em></a>{{else}}<p class="empty-state">No projects found.</p>{{end}}</div></section><section class="recent-notes card"><div class="section-heading"><div><p class="eyebrow">Files</p><h2>Recent notes</h2></div></div><ul class="compact-list">{{range .Dashboard.RecentNotes}}<li><a href="{{.URL}}">{{.Title}}</a><small>{{.RelPath}} · {{.ModTime.Format "2006-01-02 15:04"}}</small></li>{{else}}<li class="empty-state">No recent notes.</li>{{end}}</ul></section></div><aside class="home-side">{{if not .UI.HideHomepageCalendar}}<aside class="home-calendar card"><div class="calendar-header"><a href="{{.Dashboard.Calendar.PrevURL}}">‹</a><h2>{{.Dashboard.Calendar.MonthLabel}}</h2><a href="{{.Dashboard.Calendar.NextURL}}">›</a></div><div class="calendar-grid calendar-weekdays"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="calendar-grid">{{range .Dashboard.Calendar.Weeks}}{{range .}}<a class="{{.Class}}" href="{{.URL}}" aria-label="{{.Date}}">{{.Label}}</a>{{end}}{{end}}</div><p class="calendar-legend"><span>· note exists</span><span>● selected</span></p></aside>{{end}}<section class="selected-day card"><p class="eyebrow">Selected day</p><h2>{{.Dashboard.SelectedDay.Label}}</h2>{{if .Dashboard.SelectedDay.Notes}}<ul class="compact-list">{{range .Dashboard.SelectedDay.Notes}}<li><a href="{{.URL}}">{{.Title}}</a><small>{{.RelPath}}</small></li>{{end}}</ul>{{else}}<p class="empty-state">No dated notes.</p>{{end}}</section><section class="quick-jump card"><p class="eyebrow">Quick jump</p><div class="quick-links"><a class="pill chip" href="/">Today</a><a class="pill chip" href="/Areas/Daily%20Briefings">Briefings</a>{{if not .UI.HideHomepageTodos}}<a class="pill chip" href="/_todo">TODO</a>{{end}}{{range .Favorites}}<a class="pill chip" href="{{.URL}}">{{.Label}}</a>{{end}}</div></section><section class="diagnostics-card card"><p class="eyebrow">Diagnostics</p><div class="diagnostic-links"><a href="/_broken-links"><strong>{{.Dashboard.BrokenLinkCount}}</strong><span>broken links</span></a><a href="/_orphans"><strong>{{.Dashboard.OrphanNoteCount}}</strong><span>Orphan notes</span></a></div></section></aside></div>{{template "layout-end" .}}{{end}}
+{{define "home"}}
+{{template "layout-start" .}}
+{{$home := .HomepageView}}
+
+<div class="page-header home-header">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h1>Home</h1>
+  </div>
+  <button class="copy-link btn ghost" data-copy-link>Copy link</button>
+</div>
+
+{{if .Err}}<p class="error">{{.Err}}</p>{{end}}
+
+<div class="home-dashboard" data-home-dashboard>
+  <div class="home-main" data-home-column-stack="main">
+    {{range $home.MainBlocks}}
+      {{if eq .ID "today"}}
+        <section class="home-block home-block-today today-card card" data-home-block="today" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-today-title">
+          <div class="section-heading home-block-heading">
+            <div>
+              <p class="eyebrow">Today</p>
+              <h2 id="home-today-title">{{$home.TodayDate}}</h2>
+            </div>
+            {{if $home.TodayNote}}<a class="btn primary" href="{{url $home.TodayNote.RelPath}}">Open full note</a>{{end}}
+          </div>
+
+          {{if and $home.TodayNote $home.TodayDoc}}
+            <p class="home-note-title">{{$home.TodayDoc.Title}}</p>
+            <div class="home-today-preview content" aria-label="Today note preview">
+              {{safe $home.TodayDoc.HTML}}
+            </div>
+          {{else}}
+            <p class="empty-state">No daily note for today.</p>
+          {{end}}
+        </section>
+      {{end}}
+
+      {{if eq .ID "todos"}}
+        <section class="home-block home-block-todos open-todos card" data-home-block="todos" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-todos-title">
+          <div class="section-heading home-block-heading">
+            <div>
+              <p class="eyebrow">Tasks</p>
+              <h2 id="home-todos-title">Due now</h2>
+            </div>
+            <a class="btn" href="/_todo">Open TODO dashboard</a>
+          </div>
+          <div class="home-todo-sections" aria-label="Tasks due now">
+            <section class="todo-section overdue" aria-labelledby="home-todo-overdue">
+              <div class="todo-section-header">
+                <h3 id="home-todo-overdue">Late</h3>
+                <span class="count">{{len $home.TodoOverdue}}</span>
+              </div>
+              {{template "task-list" $home.TodoOverdue}}
+            </section>
+            <section class="todo-section today" aria-labelledby="home-todo-today">
+              <div class="todo-section-header">
+                <h3 id="home-todo-today">Today</h3>
+                <span class="count">{{len $home.TodoToday}}</span>
+              </div>
+              {{template "task-list" $home.TodoToday}}
+            </section>
+          </div>
+        </section>
+      {{end}}
+
+      {{if eq .ID "active_projects"}}
+        <section class="home-block home-block-active-projects active-projects card" data-home-block="active_projects" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-active-projects-title">
+          <div class="section-heading home-block-heading">
+            <div>
+              <p class="eyebrow">Continue</p>
+              <h2 id="home-active-projects-title">Active projects</h2>
+            </div>
+            <span class="count">{{len $home.Dashboard.ActiveProjects}}</span>
+          </div>
+          <label class="home-project-filter">
+            <span>Filter projects</span>
+            <input type="search" placeholder="Filter projects…" aria-label="Filter projects" data-home-project-filter>
+          </label>
+          <div class="active-project-list" data-home-project-list>
+            {{range $home.Dashboard.ActiveProjects}}
+              <article class="active-project-row" data-home-project-row data-home-project-search-text="{{.Label}} {{.RelPath}} {{.Description}} {{.LatestTitle}}">
+                <div class="active-project-copy">
+                  <a class="active-project-link" href="{{.URL}}"><strong>{{.Label}}</strong></a>
+                  <small>{{.Description}} · {{.NoteCount}} notes</small>
+                </div>
+                <div class="active-project-meta">
+                  <span>{{.Updated}}</span>
+                  {{if .LatestURL}}<a class="active-project-latest" href="{{.LatestURL}}">Latest: {{.LatestTitle}}</a>{{end}}
+                </div>
+              </article>
+            {{else}}
+              <p class="empty-state">No projects found.</p>
+            {{end}}
+          </div>
+          <p class="empty-state home-project-filter-empty" data-home-project-empty hidden>No projects match that filter.</p>
+        </section>
+      {{end}}
+
+      {{if eq .ID "recent_notes"}}
+        <section class="home-block home-block-recent-notes recent-notes card" data-home-block="recent_notes" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-recent-notes-title">
+          <div class="section-heading home-block-heading">
+            <div>
+              <p class="eyebrow">Files</p>
+              <h2 id="home-recent-notes-title">Recent notes</h2>
+            </div>
+          </div>
+          <ul class="compact-list">
+            {{range $home.Dashboard.RecentNotes}}
+              <li>
+                <a href="{{.URL}}">{{.Title}}</a>
+                <small>{{.RelPath}} · {{.ModTime.Format "2006-01-02 15:04"}}</small>
+              </li>
+            {{else}}
+              <li class="empty-state">No recent notes.</li>
+            {{end}}
+          </ul>
+        </section>
+      {{end}}
+    {{end}}
+  </div>
+
+  <aside class="home-side" data-home-column-stack="side">
+    {{range $home.SideBlocks}}
+      {{if eq .ID "quick_jump"}}
+        <section class="home-block home-block-quick-jump quick-jump card" data-home-block="quick_jump" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-quick-jump-title">
+          <div class="section-heading home-block-heading">
+            <div>
+              <p class="eyebrow">Shortcuts</p>
+              <h2 id="home-quick-jump-title">Quick jump</h2>
+            </div>
+            <span class="count">{{len $home.QuickJump}}</span>
+          </div>
+          {{if $home.QuickJump}}
+            <div class="home-shortcut-grid">
+              {{range $home.QuickJump}}
+                <a class="home-shortcut" href="{{.URL}}">
+                  <strong>{{.Label}}</strong>
+                  <small>{{.Path}}</small>
+                </a>
+              {{end}}
+            </div>
+          {{else}}
+            <p class="empty-state">No shortcuts configured.</p>
+          {{end}}
+        </section>
+      {{end}}
+
+      {{if eq .ID "calendar"}}
+        <section class="home-block home-block-calendar home-calendar card" data-home-block="calendar" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-calendar-title">
+          <div class="calendar-header">
+            <a href="{{$home.Dashboard.Calendar.PrevURL}}" aria-label="Previous month">‹</a>
+            <h2 id="home-calendar-title">{{$home.Dashboard.Calendar.MonthLabel}}</h2>
+            <a href="{{$home.Dashboard.Calendar.NextURL}}" aria-label="Next month">›</a>
+          </div>
+          <div class="calendar-grid calendar-weekdays" aria-hidden="true">
+            <span>Mon</span>
+            <span>Tue</span>
+            <span>Wed</span>
+            <span>Thu</span>
+            <span>Fri</span>
+            <span>Sat</span>
+            <span>Sun</span>
+          </div>
+          <div class="calendar-grid" aria-label="Daily notes calendar">
+            {{range $home.Dashboard.Calendar.Weeks}}{{range .}}
+              <a class="{{.Class}}" href="{{.URL}}" aria-label="{{.Date}}">{{.Label}}</a>
+            {{end}}{{end}}
+          </div>
+          <p class="calendar-legend">
+            <span><span class="legend-dot has-note" aria-hidden="true"></span> Note exists</span>
+            <span><span class="legend-dot selected" aria-hidden="true"></span> Selected</span>
+          </p>
+        </section>
+      {{end}}
+
+      {{if eq .ID "selected_day"}}
+        <section class="home-block home-block-selected-day selected-day card" data-home-block="selected_day" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-selected-day-title">
+          <p class="eyebrow">Selected day</p>
+          <h2 id="home-selected-day-title">{{$home.Dashboard.TodayLabel}}</h2>
+          {{if $home.Dashboard.SelectedDay.Notes}}
+            <ul class="compact-list home-selected-day-list">
+              {{range $home.Dashboard.SelectedDay.Notes}}
+                <li>
+                  <a href="{{.URL}}">{{.Title}}</a>
+                  <small>{{.RelPath}}</small>
+                </li>
+              {{end}}
+            </ul>
+          {{else}}
+            <p class="empty-state">No dated notes.</p>
+          {{end}}
+        </section>
+      {{end}}
+
+      {{if eq .ID "diagnostics"}}
+        <section class="home-block home-block-diagnostics diagnostics-card card" data-home-block="diagnostics" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-diagnostics-title">
+          <p class="eyebrow">Diagnostics</p>
+          <h2 id="home-diagnostics-title">Vault health</h2>
+          <div class="diagnostic-links">
+            <a href="/_broken-links">
+              <strong>{{$home.Dashboard.BrokenLinkCount}}</strong>
+              <span>broken links</span>
+            </a>
+            <a href="/_orphans">
+              <strong>{{$home.Dashboard.OrphanNoteCount}}</strong>
+              <span>orphan notes</span>
+            </a>
+          </div>
+        </section>
+      {{end}}
+    {{end}}
+  </aside>
+</div>
+
+{{template "layout-end" .}}
+{{end}}
