@@ -365,3 +365,859 @@ func TestParseFrontmatterUsesRealYAMLTypes(t *testing.T) {
 		t.Fatalf("list mismatch: %#v", fm["tags"])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Dataview FILTER parser tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterParseBasic(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    dataviewFilter
+		wantErr string
+	}{
+		{
+			name:  "simple default scalar",
+			input: `status DEFAULT "active"`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"active"}, Mode: filterModeSingle, Clearable: false},
+		},
+		{
+			name:  "default with clearable",
+			input: `status DEFAULT "active" CLEARABLE`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"active"}, Mode: filterModeSingle, Clearable: true},
+		},
+		{
+			name:  "default mode single",
+			input: `status DEFAULT "active" MODE single`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"active"}, Mode: filterModeSingle},
+		},
+		{
+			name:  "mode multi default list",
+			input: `tags DEFAULT [#project, #dashboard] MODE multi`,
+			want:  dataviewFilter{Field: "tags", Defaults: []string{"#project", "#dashboard"}, Mode: filterModeMulti},
+		},
+		{
+			name:  "mode multi with clearable",
+			input: `tags MODE multi CLEARABLE`,
+			want:  dataviewFilter{Field: "tags", Mode: filterModeMulti, Clearable: true},
+		},
+		{
+			name:  "no default no clearable",
+			input: `status`,
+			want:  dataviewFilter{Field: "status", Mode: filterModeSingle},
+		},
+		{
+			name:  "flexible option order: clearable first",
+			input: `status CLEARABLE DEFAULT "done"`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"done"}, Mode: filterModeSingle, Clearable: true},
+		},
+		{
+			name:  "flexible option order: mode before default",
+			input: `status MODE single DEFAULT "active" CLEARABLE`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"active"}, Mode: filterModeSingle, Clearable: true},
+		},
+		{
+			name:  "file.tags field with multi",
+			input: `file.tags MODE multi`,
+			want:  dataviewFilter{Field: "file.tags", Mode: filterModeMulti},
+		},
+		{
+			name:  "file.etags field",
+			input: `file.etags MODE multi CLEARABLE`,
+			want:  dataviewFilter{Field: "file.etags", Mode: filterModeMulti, Clearable: true},
+		},
+		{
+			name:  "default list with single value",
+			input: `status DEFAULT [active] MODE multi`,
+			want:  dataviewFilter{Field: "status", Defaults: []string{"active"}, Mode: filterModeMulti},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseDataviewFilter(tc.input)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("parseDataviewFilter(%q) error = %v, want %q", tc.input, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDataviewFilter(%q) unexpected error: %v", tc.input, err)
+			}
+			if got.Field != tc.want.Field || got.Clearable != tc.want.Clearable || got.Mode != tc.want.Mode {
+				t.Fatalf("parseDataviewFilter(%q) = %+v, want %+v", tc.input, got, tc.want)
+			}
+			if len(got.Defaults) != len(tc.want.Defaults) {
+				t.Fatalf("parseDataviewFilter(%q) defaults=%v, want %v", tc.input, got.Defaults, tc.want.Defaults)
+			}
+			for i := range got.Defaults {
+				if got.Defaults[i] != tc.want.Defaults[i] {
+					t.Fatalf("parseDataviewFilter(%q) defaults[%d]=%q, want %q", tc.input, i, got.Defaults[i], tc.want.Defaults[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDataviewFilterParseErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+	}{
+		{
+			name:    "empty",
+			input:   "",
+			wantErr: "empty FILTER",
+		},
+		{
+			name:    "list default in single mode",
+			input:   `status DEFAULT [a, b] MODE single`,
+			wantErr: "single cannot have multiple DEFAULT",
+		},
+		{
+			name:    "scalar default in multi mode",
+			input:   `status DEFAULT "active" MODE multi`,
+			wantErr: "multi requires DEFAULT [...]",
+		},
+		{
+			name:    "invalid mode value",
+			input:   `status MODE invalid`,
+			wantErr: "invalid MODE",
+		},
+		{
+			name:    "duplicate default",
+			input:   `status DEFAULT "a" DEFAULT "b"`,
+			wantErr: "duplicate DEFAULT",
+		},
+		{
+			name:    "duplicate mode",
+			input:   `status MODE single MODE multi`,
+			wantErr: "duplicate MODE",
+		},
+		{
+			name:    "duplicate clearable",
+			input:   `status CLEARABLE CLEARABLE`,
+			wantErr: "duplicate CLEARABLE",
+		},
+		{
+			name:    "unexpected token",
+			input:   `status UNKNOWN`,
+			wantErr: "unexpected token",
+		},
+		{
+			name:    "default without value",
+			input:   `status DEFAULT`,
+			wantErr: "requires a value",
+		},
+		{
+			name:    "mode without value",
+			input:   `status MODE`,
+			wantErr: "requires a value",
+		},
+		{
+			name:    "unclosed default list",
+			input:   `status DEFAULT [a, b`,
+			wantErr: "unclosed DEFAULT list",
+		},
+		{
+			name:    "empty list default",
+			input:   `status DEFAULT [] MODE multi`,
+			wantErr: "list is empty",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseDataviewFilter(tc.input)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("parseDataviewFilter(%q) error = %v, want %q", tc.input, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDataviewFilterParseCaseInsensitiveKeywords(t *testing.T) {
+	f, err := parseDataviewFilter(`STATUS DEFAULT "active" MODE SINGLE CLEARABLE`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Field != "STATUS" || len(f.Defaults) != 1 || f.Defaults[0] != "active" || f.Mode != filterModeSingle || !f.Clearable {
+		t.Fatalf("unexpected filter: %+v", f)
+	}
+
+	// Mixed case mode values.
+	f2, err := parseDataviewFilter(`tags MODE Multi CLEARABLE`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f2.Mode != filterModeMulti {
+		t.Fatalf("expected multi mode, got %d", f2.Mode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview FILTER integration with query parser
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterInQueryParse(t *testing.T) {
+	q, err := parseDataviewQuery(`TABLE status, file.link
+FROM "Projects"
+FILTER status DEFAULT "active" CLEARABLE
+FILTER tags MODE multi
+SORT status`)
+	if err != nil {
+		t.Fatalf("parseDataviewQuery error: %v", err)
+	}
+	if len(q.Filters) != 2 {
+		t.Fatalf("expected 2 filters, got %d", len(q.Filters))
+	}
+	if q.Filters[0].Field != "status" || q.Filters[0].Defaults[0] != "active" || !q.Filters[0].Clearable {
+		t.Fatalf("first filter mismatch: %+v", q.Filters[0])
+	}
+	if q.Filters[1].Field != "tags" || q.Filters[1].Mode != filterModeMulti {
+		t.Fatalf("second filter mismatch: %+v", q.Filters[1])
+	}
+}
+
+func TestDataviewFilterDuplicateFieldError(t *testing.T) {
+	_, err := parseDataviewQuery(`TABLE status, file.link
+FROM "Projects"
+FILTER status DEFAULT "active"
+FILTER status CLEARABLE`)
+	if err == nil || !strings.Contains(err.Error(), "duplicate FILTER") {
+		t.Fatalf("expected duplicate FILTER error, got %v", err)
+	}
+}
+
+func TestDataviewFilterNonTableError(t *testing.T) {
+	q, err := parseDataviewQuery(`LIST status FROM "Projects" FILTER status DEFAULT "active"`)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	err = validateFiltersForQuery(q)
+	if err == nil || !strings.Contains(err.Error(), "only supported for TABLE") {
+		t.Fatalf("expected TABLE-only error, got %v", err)
+	}
+}
+
+func TestDataviewFilterNonVisibleFieldError(t *testing.T) {
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER score DEFAULT "10"`)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	err = validateFiltersForQuery(q)
+	if err == nil || !strings.Contains(err.Error(), "does not match any visible table column") {
+		t.Fatalf("expected column mismatch error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview FILTER pipeline integration tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterPipelineDefaultFilters(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query with FILTER status default "active"
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "active" SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Initial render with defaults: should only show active projects.
+	params := dataviewTableParams{}
+	rows, states, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have Active (Alpha, Gamma) but not done (Beta).
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 filtered rows (active), got %d: %+v", len(rows), rows)
+	}
+
+	// Verify filter state.
+	if len(states) != 1 {
+		t.Fatalf("expected 1 filter state, got %d", len(states))
+	}
+	if len(states[0].Selected) != 1 || states[0].Selected[0] != "active" {
+		t.Fatalf("expected active selected, got %v", states[0].Selected)
+	}
+}
+
+func TestDataviewFilterPipelineAJAXParams(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "active" CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// AJAX: filter by "done" instead of default.
+	params := dataviewTableParams{Filters: map[string][]string{"status": {"done"}}}
+	rows, states, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 done row, got %d", len(rows))
+	}
+	if len(states[0].Selected) != 1 || states[0].Selected[0] != "done" {
+		t.Fatalf("expected done selected, got %v", states[0].Selected)
+	}
+
+	// AJAX: "All" (empty selected).
+	params2 := dataviewTableParams{Filters: map[string][]string{"status": {}}}
+	rows2, _, err := evalDataviewTableRows(v, idx, q, params2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows2) != 3 {
+		t.Fatalf("expected 3 rows for All, got %d", len(rows2))
+	}
+}
+
+func TestDataviewFilterPipelineTextQ(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status MODE multi SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Global text q: filter to rows containing "Gamma".
+	params := dataviewTableParams{Q: "Gamma"}
+	rows, _, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row matching q=Gamma, got %d", len(rows))
+	}
+}
+
+func TestDataviewFilterPipelineUserSort(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, fact_count FROM "Projects" SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// User sort by fact_count descending.
+	params := dataviewTableParams{Sort: "fact_count", Dir: "desc"}
+	rows, _, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	// First row should have highest fact_count (Gamma=12).
+	firstFact := evalValue(rows[0], "fact_count")
+	if displayPlain(firstFact) != "12" {
+		t.Fatalf("expected first row fact_count=12, got %v", firstFact)
+	}
+}
+
+func TestDataviewFilterUserSortReplacesQuerySort(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query SORTs by fact_count DESC. User SORTs by fact_count ASC.
+	// User sort should replace query sort entirely, not just be a tie-breaker.
+	q, err := parseDataviewQuery(`TABLE status, fact_count FROM "Projects" SORT fact_count DESC`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// User sort ASC: should override query DESC.
+	params := dataviewTableParams{Sort: "fact_count", Dir: "asc"}
+	rows, _, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	// First row should be lowest fact_count (Beta=2), not highest.
+	firstFact := evalValue(rows[0], "fact_count")
+	if displayPlain(firstFact) != "2" {
+		t.Fatalf("expected first row fact_count=2 (ASC), got %v", firstFact)
+	}
+}
+
+func TestDataviewFilterPipelineLimitAfterQ(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query with LIMIT 1, filter with q should apply q before LIMIT.
+	q, err := parseDataviewQuery(`TABLE file.link FROM "Projects" LIMIT 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without q: LIMIT 1 returns first row (Alpha).
+	rows, _, err := evalDataviewTableRows(v, idx, q, dataviewTableParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row with LIMIT 1, got %d", len(rows))
+	}
+
+	// With q=Gamma: should find Gamma first, then LIMIT.
+	rows2, _, err := evalDataviewTableRows(v, idx, q, dataviewTableParams{Q: "Gamma"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows2) != 1 {
+		t.Fatalf("expected 1 row with LIMIT 1 + q=Gamma, got %d", len(rows2))
+	}
+	firstNote := rows2[0].Note
+	if firstNote == nil || !strings.Contains(firstNote.RelPath, "Gamma") {
+		t.Fatalf("expected Gamma with q=Gamma, got %+v", firstNote)
+	}
+}
+
+func TestDataviewFilterPipelineGroupBy(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// GROUP BY with filters.
+	q, err := parseDataviewQuery(`TABLE rows.file.link as "Projet", length(rows) as "Count" FROM "Projects" GROUP BY area SORT key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without filters: should have Core (Alpha, Beta) and Ops (Gamma).
+	rows, _, err := evalDataviewTableRows(v, idx, q, dataviewTableParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 GROUP BY rows, got %d", len(rows))
+	}
+}
+
+func TestDataviewFilterPipelineFlatten(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE aliases as "Alias", file.link as "Projet" FROM "Projects" FLATTEN aliases WHERE aliases != "" SORT aliases`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without filters: should have A1, Alpha flattens.
+	rows, _, err := evalDataviewTableRows(v, idx, q, dataviewTableParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 FLATTEN rows, got %d", len(rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview scanner tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewScannerCountsTables(t *testing.T) {
+	// Build the text with fenced dataview blocks using fmt so backticks are valid.
+	block1 := "```dataview\nTABLE status, file.link FROM \"Projects\"\n```"
+	block2 := "```dataview\nLIST status FROM \"Projects\"\n```"
+	block3 := "```dataview\nTABLE file.name FROM \"Areas\"\n```"
+	text := "Some text\n\n" + block1 + "\n\nMore text\n\n" + block2 + "\n\n" + block3 + "\n"
+
+	blocks := scanDataviewBlocks(text)
+	if len(blocks) != 3 {
+		t.Fatalf("expected 3 blocks, got %d", len(blocks))
+	}
+	// First block should be TABLE index 1
+	if !blocks[0].IsTable || blocks[0].TableIndex != 1 {
+		t.Fatalf("first block should be table index 1, got isTable=%v index=%d", blocks[0].IsTable, blocks[0].TableIndex)
+	}
+	// Second block should NOT be a TABLE
+	if blocks[1].IsTable {
+		t.Fatalf("second block (LIST) should not be a table")
+	}
+	if blocks[1].TableIndex != 0 {
+		t.Fatalf("second block table index should be 0, got %d", blocks[1].TableIndex)
+	}
+	// Third block should be TABLE index 2
+	if !blocks[2].IsTable || blocks[2].TableIndex != 2 {
+		t.Fatalf("third block should be table index 2, got isTable=%v index=%d", blocks[2].IsTable, blocks[2].TableIndex)
+	}
+}
+
+func TestDataviewScannerSingleLineFenced(t *testing.T) {
+	text := "```dataview\nTABLE status FROM \"Projects\" SORT file.name\n```\n"
+	blocks := scanDataviewBlocks(text)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if !blocks[0].IsTable || blocks[0].TableIndex != 1 {
+		t.Fatalf("single-line table should be index 1, got index=%d", blocks[0].TableIndex)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview filter HTML rendering tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterRenderControls(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "active" CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+
+	// Data attributes.
+	if !strings.Contains(str, `data-dataview-action="renderDataviewTable"`) {
+		t.Fatalf("missing action data attribute in:\n%s", str)
+	}
+	if !strings.Contains(str, `data-dataview-table="1"`) {
+		t.Fatalf("missing table index data attribute in:\n%s", str)
+	}
+
+	// Filter control for "status".
+	if !strings.Contains(str, `data-dataview-filter="status"`) {
+		t.Fatalf("missing filter control for status in:\n%s", str)
+	}
+
+	// Default "active" should be selected.
+	if !strings.Contains(str, `value="active" selected`) && !strings.Contains(str, `value="active"`+` selected`) {
+		t.Fatalf("expected active selected in:\n%s", str)
+	}
+
+	// "All" option should be present (clearable).
+	if !strings.Contains(str, `>All</option>`) {
+		t.Fatalf("expected All option for clearable filter in:\n%s", str)
+	}
+
+	// Table headers.
+	if !strings.Contains(str, `>status</th>`) {
+		t.Fatalf("missing status column header in:\n%s", str)
+	}
+	if !strings.Contains(str, `>file.link</th>`) {
+		t.Fatalf("missing file.link column header in:\n%s", str)
+	}
+}
+
+func TestDataviewFilterRenderNoMatchingRows(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Filter to a value that doesn't exist.
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := dataviewTableParams{Filters: map[string][]string{"status": {"nonexistent"}}}
+	html := renderDataviewTableBlockWithParams(v, idx, q, 1, params)
+	str := string(html)
+
+	// Should render "No matching rows" message.
+	if !strings.Contains(str, "No matching rows") {
+		t.Fatalf("expected No matching rows in:\n%s", str)
+	}
+
+	// Headers should still be present.
+	if !strings.Contains(str, `>status</th>`) {
+		t.Fatalf("missing status header in no-rows state:\n%s", str)
+	}
+}
+
+func TestDataviewFilterRenderDefaultAbsentSyntheticOption(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default value "urgent" doesn't exist in data. Should still render as synthetic option.
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "urgent" MODE single SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+
+	// Should contain "urgent" as an option.
+	if !strings.Contains(str, `>urgent</option>`) && !strings.Contains(str, `value="urgent"`) {
+		t.Fatalf("expected synthetic urgent option in:\n%s", str)
+	}
+
+	// Should show 0 rows because urgent matches nothing.
+	if !strings.Contains(str, "No matching rows") {
+		t.Fatalf("expected No matching rows for absent default in:\n%s", str)
+	}
+}
+
+func TestDataviewFilterRenderNoClearableNoDefaultDisabledPlaceholder(t *testing.T) {
+	v := makeDataviewVault(t)
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No default, not clearable.
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+
+	// Should have a disabled placeholder.
+	if !strings.Contains(str, `disabled`) {
+		t.Fatalf("expected disabled placeholder for non-clearable no-default filter in:\n%s", str)
+	}
+}
+
+func TestDataviewFilterRenderEscapesDynamicContent(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Projects/XSS.md", "---\ntitle: '<script>alert(1)</script>'\nstatus: '<script>evil</script>'\n---\n# XSS\n")
+	defer func() {
+		os.Remove(filepath.Join(v.Root, "Projects", "XSS.md"))
+	}()
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "Projects" FILTER status CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+
+	// HTML in content should be escaped.
+	if strings.Contains(str, "<script>") && !strings.Contains(str, "&lt;script&gt;") {
+		t.Fatalf("dynamic content should be HTML-escaped in:\n%s", str)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview filter tag handling
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterTagsPrefix(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Projects/Tagged2.md", "---\ntitle: Tagged Note\ntags: [project, filter-test]\nstatus: active\n---\n# Tagged\n")
+	defer func() {
+		os.Remove(filepath.Join(v.Root, "Projects", "Tagged2.md"))
+	}()
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test with tags field filter.
+	q, err := parseDataviewQuery(`TABLE tags, file.link FROM "Projects" FILTER tags MODE multi SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+
+	// Tag values should have # prefix in display.
+	if !strings.Contains(str, "#project") && !strings.Contains(str, "#filter-test") {
+		t.Fatalf("expected #-prefixed tag options in:\n%s", str)
+	}
+
+	// AJAX filter with # prefix should match.
+	params := dataviewTableParams{Filters: map[string][]string{"tags": {"#filter-test"}}}
+	rows, _, err := evalDataviewTableRows(v, idx, q, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row filtered by #filter-test, got %d", len(rows))
+	}
+
+	// Filter without # should NOT match (strict # required).
+	params2 := dataviewTableParams{Filters: map[string][]string{"tags": {"filter-test"}}}
+	rows2, _, err := evalDataviewTableRows(v, idx, q, params2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows2) != 0 {
+		t.Fatalf("expected 0 rows filtered by filter-test without #, got %d", len(rows2))
+	}
+}
+
+func TestDataviewFilterFileTags(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Projects/Tagged3.md", "---\ntitle: Tagged Three\ntags: [three, test]\nstatus: active\n---\n# Tagged Three\n")
+	defer func() {
+		os.Remove(filepath.Join(v.Root, "Projects", "Tagged3.md"))
+	}()
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// file.tags filter.
+	q, err := parseDataviewQuery(`TABLE file.tags, file.link FROM "Projects" FILTER file.tags MODE multi CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Render should include #-prefixed options.
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+	if !strings.Contains(str, `#three`) && !strings.Contains(str, `#test`) {
+		t.Fatalf("expected #-prefixed tag options for file.tags in:\n%s", str)
+	}
+}
+
+func TestDataviewFilterTagDefaultsRequireHashPrefix(t *testing.T) {
+	q, err := parseDataviewQuery(`TABLE tags, file.link FROM "Projects" FILTER tags DEFAULT [project] MODE multi`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFiltersForQuery(q); err == nil || !strings.Contains(err.Error(), "# prefix") {
+		t.Fatalf("expected tag default prefix validation error, got %v", err)
+	}
+}
+
+func TestDataviewTagCellEmptyValueDoesNotRenderHash(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Projects/EmptyTag.md", "---\ntitle: Empty Tag\ntags: [\"\"]\nstatus: active\n---\n# Empty Tag\n")
+	defer func() {
+		os.Remove(filepath.Join(v.Root, "Projects", "EmptyTag.md"))
+	}()
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := parseDataviewQuery(`TABLE tags, file.link FROM "Projects" WHERE file.name = "EmptyTag"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(renderDataviewTableBlock(v, idx, q, 1))
+	if strings.Contains(html, `>#<`) || strings.Contains(html, `#,`) {
+		t.Fatalf("empty tag value should not render #:\n%s", html)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview action handler tests (app_test.go for HTTP-level tests)
+// ---------------------------------------------------------------------------
+
+func TestDataviewFilterNonTableFullRenderError(t *testing.T) {
+	v := makeDataviewVault(t)
+	// Full render of a LIST with FILTER should show a visible Dataview error.
+	input := "# Test\n\n```dataview\nLIST status FROM \"Projects\" FILTER status DEFAULT \"active\"\n```\n"
+	html := preprocessDataviewBlocks(input, v)
+	if !strings.Contains(html, "dataview-error") {
+		t.Fatalf("expected dataview-error for LIST with FILTER, got:\n%s", html)
+	}
+	if !strings.Contains(html, "only supported for TABLE") {
+		t.Fatalf("expected TABLE-only error message in:\n%s", html)
+	}
+}
+
+func TestDataviewFilterValidateFilterFieldInColumns(t *testing.T) {
+	cols := []dataviewColumn{{Expr: "status", Label: "Status"}, {Expr: "file.link", Label: "File"}}
+	if err := validateFilterFieldInColumns(dataviewFilter{Field: "status"}, cols); err != nil {
+		t.Fatalf("status should be valid: %v", err)
+	}
+	if err := validateFilterFieldInColumns(dataviewFilter{Field: "score"}, cols); err == nil {
+		t.Fatalf("score should be invalid")
+	}
+}
+
+func TestDataviewFilterIsValidFilterField(t *testing.T) {
+	if !isValidFilterField("status") {
+		t.Fatal("status should be valid")
+	}
+	if !isValidFilterField("file.tags") {
+		t.Fatal("file.tags should be valid")
+	}
+	if !isValidFilterField("file.etags") {
+		t.Fatal("file.etags should be valid")
+	}
+	if isValidFilterField("") {
+		t.Fatal("empty should be invalid")
+	}
+	if isValidFilterField("$invalid") {
+		t.Fatal("$invalid should be invalid")
+	}
+	if isValidFilterField("dateformat(...)") {
+		t.Fatal("function calls should be invalid")
+	}
+}
+
+func TestDataviewFilterParseFilterParams(t *testing.T) {
+	params := map[string][]string{
+		"filter.status": {"active"},
+		"filter.tags":   {"#project", "#dashboard"},
+		"q":             {"search"},
+		"sort":          {"status"},
+		"dir":           {"desc"},
+	}
+	filters := parseFilterParams(params)
+	if len(filters) != 2 {
+		t.Fatalf("expected 2 filter params, got %d", len(filters))
+	}
+	if len(filters["status"]) != 1 || filters["status"][0] != "active" {
+		t.Fatalf("status filter mismatch: %v", filters["status"])
+	}
+	if len(filters["tags"]) != 2 || filters["tags"][0] != "#project" {
+		t.Fatalf("tags filter mismatch: %v", filters["tags"])
+	}
+}
+
+func TestDataviewFilterDedupeFilterValues(t *testing.T) {
+	deduped := dedupeFilterValues([]string{"a", "b", "a", "c"})
+	if len(deduped) != 3 || deduped[0] != "a" || deduped[1] != "b" || deduped[2] != "c" {
+		t.Fatalf("deduped = %v, want [a b c]", deduped)
+	}
+}

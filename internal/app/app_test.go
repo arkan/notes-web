@@ -3,6 +3,7 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1833,5 +1834,492 @@ func TestHomeDashboardCSSDefinesTwoColumnCalendarLayout(t *testing.T) {
 	}
 	if strings.Contains(css, `.home-block[data-home-column=main]{grid-column`) || strings.Contains(css, `.home-block[data-home-column=side]{grid-column`) {
 		t.Fatalf("homepage desktop packing should use column stacks, not per-block grid-column rules:\n%s", css)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview table action HTTP handler tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewTableActionSuccess(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/Filtered.md",
+		"# Filtered\n\n"+
+			"```dataview\n"+
+			`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "active" CLEARABLE SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "Filtered.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Filtered.md?action=renderDataviewTable&table=1&filter.status=done", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, `data-dataview-action="renderDataviewTable"`) {
+		t.Fatalf("response missing action data attribute:\n%s", body)
+	}
+	if !strings.Contains(body, `data-dataview-table="1"`) {
+		t.Fatalf("response missing table index:\n%s", body)
+	}
+	// Should filter to "done" status — only Beta.
+	if !strings.Contains(body, `href="/Projects/Beta.md">Beta</a>`) {
+		t.Fatalf("response should include Beta (done):\n%s", body)
+	}
+	if strings.Contains(body, `href="/Projects/Alpha.md">Alpha</a>`) {
+		t.Fatalf("response should NOT include Alpha (not done):\n%s", body)
+	}
+}
+
+func TestDataviewTableActionMethodNotAllowed(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+
+	// POST is not allowed for the action.
+	r := httptest.NewRequest("POST", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 405 {
+		t.Fatalf("expected 405 for POST, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "dataview-error") {
+		t.Fatalf("response should contain dataview-error:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionUnknownAction(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=unknown", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for unknown action, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Unknown action") {
+		t.Fatalf("response should mention unknown action:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionMissingTable(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for missing table, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataviewTableActionInvalidTable(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=abc", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for invalid table, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataviewTableActionOutOfRangeTable(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=99", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for out-of-range table, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "out of range") {
+		t.Fatalf("response should mention out of range:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionNonMarkdown(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Assets/img.png", "fake image\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Assets"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Assets/img.png?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for non-markdown, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Markdown note") {
+		t.Fatalf("response should mention Markdown:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionMissingNote(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Nonexistent.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	// Non-existent path: should get 404 with dataview-error fragment.
+	if w.Code != 404 {
+		t.Fatalf("expected 404 for missing note, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "dataview-error") {
+		t.Fatalf("response should contain dataview-error fragment:\n%s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Note not found") {
+		t.Fatalf("response should mention note not found:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionHiddenPath(t *testing.T) {
+	v := makeDataviewVault(t)
+	// Create a hidden note.
+	hiddenPath := filepath.Join(v.Root, "Areas", "Secret.md")
+	if err := os.MkdirAll(filepath.Dir(hiddenPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hiddenPath, []byte("# Secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - Areas/Secret.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Secret.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	// Hidden path: 404.
+	if w.Code != 404 {
+		t.Fatalf("expected 404 for hidden note, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataviewTableActionAuthProtected(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "user", "pass")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1", nil)
+	// No auth header.
+	s.ServeHTTP(w, r)
+
+	if w.Code != 401 {
+		t.Fatalf("expected 401 without auth, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataviewTableActionUndeclaredFilter(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&filter.undeclared=value", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for undeclared filter, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "undeclared") {
+		t.Fatalf("response should mention undeclared:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionSortWithoutDir(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&sort=status", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for sort without dir, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "sort") || !strings.Contains(w.Body.String(), "dir") {
+		t.Fatalf("response should mention sort requires dir:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionDirWithoutSort(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&dir=desc", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for dir without sort, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataviewTableActionPathParamRejected(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	// Include path param — should be rejected as security measure.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&path=/evil", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for path param, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Path parameter") {
+		t.Fatalf("response should mention path parameter rejection:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionEmptyPathParamRejected(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	// Empty path= param — should also be rejected (key presence check).
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&path=", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for empty path param, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Path parameter") {
+		t.Fatalf("response should mention path parameter rejection:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionRepeatedSingleFilter(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/FilterSingle.md",
+		"# FilterSingle\n\n"+
+			"```dataview\n"+
+			`TABLE status, file.link FROM "Projects" FILTER status DEFAULT "active" CLEARABLE SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "FilterSingle.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// Repeated values for single-mode filter should be rejected, even when identical.
+	r := httptest.NewRequest("GET", "/Dashboards/FilterSingle.md?action=renderDataviewTable&table=1&filter.status=active&filter.status=active", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for repeated single filter, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "at most one value") {
+		t.Fatalf("response should mention at most one value:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionSortNonVisibleColumn(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// sort fact_count is valid in Dataview.md but query has no fact_count as column.
+	// Actually it does have fact_count as "Faits" — use nonexistent "score".
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&sort=score&dir=desc", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for sort field not matching visible column, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "does not match any visible column") {
+		t.Fatalf("response should mention non-matching sort field:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionSortComplexExpression(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/ComplexSort.md",
+		"# ComplexSort\n\n"+
+			"```dataview\n"+
+			`TABLE dateformat(file.mtime, "yyyy") as "Year", file.link FROM "Projects" SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "ComplexSort.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// Try sorting by the complex expression column (should be rejected).
+	q := url.Values{
+		"action": {"renderDataviewTable"},
+		"table":  {"1"},
+		"sort":   {"dateformat(file.mtime, \"yyyy\")"},
+		"dir":    {"desc"},
+	}
+	r := httptest.NewRequest("GET", "/Dashboards/ComplexSort.md?"+q.Encode(), nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for complex sort expression, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "not a valid simple field") {
+		t.Fatalf("response should mention invalid sort field:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionEscapedLabels(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/Escaped.md",
+		"# Escaped\n\n"+
+			"```dataview\n"+
+			`TABLE status as "<script>", file.link FROM "Projects" FILTER status DEFAULT "active" CLEARABLE SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "Escaped.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Escaped.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	// The <script> label should be HTML-escaped.
+	if strings.Contains(body, `> <script> <`) {
+		t.Fatalf("dynamic label should be HTML-escaped:\n%s", body)
+	}
+	if !strings.Contains(body, `&lt;script&gt;`) {
+		t.Fatalf("expected escaped &lt;script&gt; in:\n%s", body)
+	}
+}
+
+func TestDataviewTableActionMultiFilterWithRepeatedParams(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/MultiFilter.md",
+		"# MultiFilter\n\n"+
+			"```dataview\n"+
+			`TABLE tags, file.link FROM "Projects" FILTER tags MODE multi CLEARABLE SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "MultiFilter.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// Filter by multiple tag values via repeated params.
+	r := httptest.NewRequest("GET", "/Dashboards/MultiFilter.md?action=renderDataviewTable&table=1&filter.tags=%23project&filter.tags=%23active", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	// Should filter to notes with project+active tags.
+	if !strings.Contains(body, `href="/Projects/Alpha.md">Alpha</a>`) {
+		t.Fatalf("response should include Alpha:\n%s", body)
+	}
+	if !strings.Contains(body, `href="/Projects/Gamma.md">Gamma</a>`) {
+		t.Fatalf("response should include Gamma:\n%s", body)
+	}
+}
+
+func TestDataviewTableActionNonTableBlockError(t *testing.T) {
+	v := makeDataviewVault(t)
+	writeDataviewFixture(t, v, "Dashboards/NonTable.md",
+		"# NonTable\n\n"+
+			"```dataview\n"+
+			`LIST status FROM "Projects" FILTER status DEFAULT "active"`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "Dashboards", "NonTable.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/NonTable.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for non-TABLE query action, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "dataview-error") {
+		t.Fatalf("response should contain dataview-error:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionSortAndDir(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// Use a column expression as sort field (fact_count is a column).
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&sort=fact_count&dir=desc", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	// With sort=fact_count&dir=desc, Gamma (12) should come first, then Alpha (7), then Beta (2).
+	gammaIdx := strings.Index(body, "Gamma")
+	alphaIdx := strings.Index(body, "Alpha")
+	betaIdx := strings.Index(body, "Beta")
+	if gammaIdx < 0 || alphaIdx < 0 || betaIdx < 0 {
+		t.Fatalf("expected Gamma, Alpha, Beta in response:\n%s", body)
+	}
+	if gammaIdx > alphaIdx || alphaIdx > betaIdx {
+		t.Fatalf("expected desc sort by fact_count: Gamma > Alpha > Beta:\n%s", body)
+	}
+	// fact_count header should have aria-sort="descending".
+	if !strings.Contains(body, `aria-sort="descending"`) {
+		t.Fatalf("expected aria-sort=descending for fact_count column in:\n%s", body)
+	}
+}
+
+func TestDataviewTableActionInvalidDirValue(t *testing.T) {
+	v := makeDataviewVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md?action=renderDataviewTable&table=1&sort=status&dir=invalid", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for invalid dir, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid dir") {
+		t.Fatalf("response should mention invalid dir:\n%s", w.Body.String())
+	}
+}
+
+func TestDataviewTableActionRenderAllTables(t *testing.T) {
+	v := makeDataviewVault(t)
+	// Use existing dashboards: has one TABLE in Dashboards/Dataview.md
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/Dataview.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 for full page, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	// Full page should have the data-dataview attributes.
+	if !strings.Contains(body, `data-dataview-action="renderDataviewTable"`) {
+		t.Fatalf("full page render missing action data attribute:\n%s", body)
+	}
+	if !strings.Contains(body, `data-dataview-table="1"`) {
+		t.Fatalf("full page render missing table index:\n%s", body)
 	}
 }

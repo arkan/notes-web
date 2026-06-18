@@ -4,3 +4,6 @@ bin/
 /tmp/
 /docs/plans
 .slim/deepwork/
+/node_modules/
+/playwright-report/
+/test-results/

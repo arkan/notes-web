@@ -21,7 +21,7 @@ The application is designed for private use on a local network or over Tailscale
   - ambiguous links show a chooser page
   - missing links show a dedicated not-found page
 - **Frontmatter display** with `title:` used as the page title when present.
-- **Server-side Dataview rendering** for common Obsidian `TABLE`, `LIST`, and `TASK` queries; see [`docs/dataview.md`](docs/dataview.md).
+- **Server-side Dataview rendering** for common Obsidian `TABLE`, `LIST`, and `TASK` queries with column dropdown filters, sorting, text search, and pagination; see [`docs/dataview.md`](docs/dataview.md).
 - **Sidebar vault tree** with collapsible folders and state persisted in `localStorage`.
 - **Home page** with favorites, latest daily note, and recently modified notes.
 - **Backlinks** computed on demand.
@@ -34,7 +34,7 @@ The application is designed for private use on a local network or over Tailscale
 
 - A Markdown vault directory, for example `/home/arkan/hermes`.
 - `ripgrep` (`rg`) is optional but recommended for faster search.
-- Go 1.25+ is only required when building from source.
+- Go 1.26+ is only required when building from source.
 
 ## Install from a prebuilt release archive
 
@@ -317,19 +317,43 @@ Important details:
 
 ## Development
 
-Run tests:
+### Prerequisites
+
+Install Node.js development dependencies and Playwright Chromium browser:
 
 ```bash
-go test ./...
+make deps
 ```
 
-Build:
+For CI or headless environments (installs system dependencies for Chromium):
 
 ```bash
-go build -o ./bin/notes-web ./cmd/notes-web
+make deps-ci
 ```
 
-Run a local smoke test manually:
+### Testing
+
+Run all tests (Go unit tests → lint → E2E):
+
+```bash
+make test
+```
+
+Run individual test suites:
+
+```bash
+make test-go       # go test ./cmd/... ./internal/...
+make lint          # npm run lint
+make test-e2e      # npm run test:e2e (requires a running server or webServer)
+```
+
+### Build
+
+```bash
+make build         # go build -o bin/notes-web ./cmd/notes-web
+```
+
+### Manual smoke test
 
 ```bash
 ./bin/notes-web --vault /home/arkan/hermes --host 127.0.0.1 --port 18080

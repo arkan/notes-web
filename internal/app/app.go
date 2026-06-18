@@ -760,6 +760,13 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Check for Dataview table AJAX action before os.Stat so missing notes
+	// get a proper dataview-error fragment instead of a plain 404 page.
+	if _, ok := r.URL.Query()["action"]; ok {
+		if s.handleDataviewTableAction(w, r, p) {
+			return
+		}
+	}
 	st, err := os.Stat(p)
 	if err != nil {
 		http.NotFound(w, r)
@@ -769,6 +776,7 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		s.folder(w, r, p)
 		return
 	}
+
 	if s.vault.IsMarkdown(p) {
 		n, err := s.vault.ReadNote(p)
 		if err != nil {

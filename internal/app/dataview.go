@@ -22,6 +22,7 @@ type dataviewQuery struct {
 	Limit     int
 	GroupBy   string
 	Flatten   string
+	Filters   []dataviewFilter
 }
 
 type dataviewColumn struct{ Expr, Label string }
@@ -75,30 +76,6 @@ func RenderDataviewBlockWithIndex(v *Vault, idx *VaultIndex, raw string) templat
 	default:
 		return dataviewError(raw, fmt.Errorf("unsupported Dataview query type %s", q.Kind))
 	}
-}
-
-func preprocessDataviewBlocks(s string, v *Vault) string {
-	re := regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
-	if !re.MatchString(s) {
-		return s
-	}
-	idx, err := v.BuildIndex()
-	if err != nil {
-		return re.ReplaceAllStringFunc(s, func(m string) string {
-			parts := re.FindStringSubmatch(m)
-			if len(parts) != 2 {
-				return m
-			}
-			return string(dataviewError(parts[1], err))
-		})
-	}
-	return re.ReplaceAllStringFunc(s, func(m string) string {
-		parts := re.FindStringSubmatch(m)
-		if len(parts) != 2 {
-			return m
-		}
-		return string(RenderDataviewBlockWithIndex(v, idx, parts[1]))
-	})
 }
 
 func parseDataviewQuery(raw string) (dataviewQuery, error) {
@@ -158,6 +135,17 @@ func parseDataviewQuery(raw string) (dataviewQuery, error) {
 			q.GroupBy = strings.TrimSpace(line[len("GROUP BY "):])
 		case strings.HasPrefix(u, "FLATTEN "):
 			q.Flatten = strings.TrimSpace(line[len("FLATTEN "):])
+		case strings.HasPrefix(u, "FILTER "):
+			f, err := parseDataviewFilter(strings.TrimSpace(line[len("FILTER "):]))
+			if err != nil {
+				return q, err
+			}
+			for _, existing := range q.Filters {
+				if existing.Field == f.Field {
+					return q, fmt.Errorf("duplicate FILTER for field %q", f.Field)
+				}
+			}
+			q.Filters = append(q.Filters, f)
 		default:
 			return q, fmt.Errorf("unsupported Dataview clause %q", line)
 		}
@@ -175,7 +163,7 @@ func dataviewLines(raw string) []string {
 		parts := splitDataviewInlineClauses(line)
 		for _, part := range parts {
 			upper := strings.ToUpper(strings.TrimSpace(part))
-			isClause := strings.HasPrefix(upper, "TABLE") || strings.HasPrefix(upper, "LIST") || strings.HasPrefix(upper, "TASK") || strings.HasPrefix(upper, "CALENDAR") || strings.HasPrefix(upper, "FROM ") || strings.HasPrefix(upper, "WHERE ") || strings.HasPrefix(upper, "SORT ") || strings.HasPrefix(upper, "LIMIT ") || strings.HasPrefix(upper, "GROUP BY ") || strings.HasPrefix(upper, "FLATTEN ")
+			isClause := strings.HasPrefix(upper, "TABLE") || strings.HasPrefix(upper, "LIST") || strings.HasPrefix(upper, "TASK") || strings.HasPrefix(upper, "CALENDAR") || strings.HasPrefix(upper, "FROM ") || strings.HasPrefix(upper, "WHERE ") || strings.HasPrefix(upper, "SORT ") || strings.HasPrefix(upper, "LIMIT ") || strings.HasPrefix(upper, "GROUP BY ") || strings.HasPrefix(upper, "FLATTEN ") || strings.HasPrefix(upper, "FILTER ")
 			if isClause || len(logical) == 0 {
 				logical = append(logical, part)
 			} else {
@@ -187,7 +175,7 @@ func dataviewLines(raw string) []string {
 }
 
 func splitDataviewInlineClauses(line string) []string {
-	clauseKeywords := []string{" FROM ", " WHERE ", " SORT ", " LIMIT ", " GROUP BY ", " FLATTEN "}
+	clauseKeywords := []string{" FROM ", " WHERE ", " SORT ", " LIMIT ", " GROUP BY ", " FLATTEN ", " FILTER "}
 	var parts []string
 	for {
 		pos := -1
@@ -300,6 +288,12 @@ func splitTopLevel(s string, sep rune) []string {
 }
 
 func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow, error) {
+	return evalDataviewRowsFull(v, idx, q, false, false)
+}
+
+// evalDataviewRowsFull evaluates rows with options to skip LIMIT and/or SORT
+// (for TABLE queries where those must be applied after filter/q and user sort).
+func evalDataviewRowsFull(v *Vault, idx *VaultIndex, q dataviewQuery, skipLimit, skipSort bool) ([]dataviewRow, error) {
 	var rows []dataviewRow
 	heavy := q.requiredHeavyFields()
 	if q.Kind == "TASK" {
@@ -329,8 +323,10 @@ func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow
 	if q.GroupBy != "" {
 		rows = groupRows(rows, q.GroupBy)
 	}
-	sortDataviewRows(rows, q.Sorts)
-	if q.Limit >= 0 && len(rows) > q.Limit {
+	if !skipSort {
+		sortDataviewRows(rows, q.Sorts)
+	}
+	if !skipLimit && q.Limit >= 0 && len(rows) > q.Limit {
 		rows = rows[:q.Limit]
 	}
 	return rows, nil

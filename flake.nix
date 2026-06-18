@@ -57,6 +57,7 @@
             pkgs.go
             pkgs.gopls
             pkgs.gotools
+            pkgs.nodejs
           ];
         };
       });

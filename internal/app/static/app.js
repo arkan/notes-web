@@ -698,66 +698,398 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
-function initDataviewTables() {
-  document.querySelectorAll('.dataview-table').forEach((table) => {
-    const wrap = table.closest('.dataview-table-wrap');
-    const filter = wrap?.querySelector('[data-dataview-filter]');
-    const pageSizeSelect = wrap?.querySelector('[data-dataview-page-size]');
-    const pager = wrap?.querySelector('[data-dataview-pager]');
-    const tbody = table.tBodies[0];
-    if (!tbody) return;
-    const allRows = Array.from(tbody.rows);
-    let page = 1;
-    const isGroupRow = (row) => row.classList.contains('dataview-group');
-    const updateVisibility = () => {
-      const q = (filter?.value || '').trim().toLowerCase();
-      const pageSize = Number(pageSizeSelect?.value || 0);
-      const matches = allRows.filter(row => isGroupRow(row) || !q || row.textContent.toLowerCase().includes(q));
-      const dataRows = matches.filter(row => !isGroupRow(row));
-      const maxPage = pageSize > 0 ? Math.max(1, Math.ceil(dataRows.length / pageSize)) : 1;
-      page = Math.min(page, maxPage);
-      let seen = 0;
-      allRows.forEach(row => {
-        if (!matches.includes(row)) { row.hidden = true; return; }
-        if (isGroupRow(row) || pageSize === 0) { row.hidden = false; return; }
-        seen += 1;
-        row.hidden = seen <= (page - 1) * pageSize || seen > page * pageSize;
-      });
-      if (pager) {
-        pager.innerHTML = pageSize > 0 && dataRows.length > pageSize
-          ? '<button type="button" data-dataview-prev>Prev</button><span>Page ' + page + ' / ' + maxPage + ' · ' + dataRows.length + ' rows</span><button type="button" data-dataview-next>Next</button>'
-          : '<span>' + dataRows.length + ' rows</span>';
-        pager.querySelector('[data-dataview-prev]')?.addEventListener('click', () => { page = Math.max(1, page - 1); updateVisibility(); });
-        pager.querySelector('[data-dataview-next]')?.addEventListener('click', () => { page = Math.min(maxPage, page + 1); updateVisibility(); });
-      }
-    };
-    filter?.classList.add('dataview-filter');
-    filter?.addEventListener('input', () => { page = 1; updateVisibility(); });
-    pageSizeSelect?.addEventListener('change', () => { page = 1; updateVisibility(); });
-    const headers = table.querySelectorAll('th[data-dataview-sort]');
-    headers.forEach((th, index) => {
-      th.tabIndex = 0;
-      const sort = () => {
-        const current = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
-        headers.forEach(h => h.setAttribute('aria-sort', 'none'));
-        th.setAttribute('aria-sort', current);
-        const rows = Array.from(tbody.rows);
-        const groupRows = rows.filter(isGroupRow);
-        const sortableRows = rows.filter(row => !isGroupRow(row));
-        sortableRows.sort((a, b) => {
-          const av = (a.cells[index]?.textContent || '').trim();
-          const bv = (b.cells[index]?.textContent || '').trim();
-          const an = Number(av), bn = Number(bv);
-          const cmp = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : av.localeCompare(bv, undefined, {numeric:true, sensitivity:'base'});
-          return current === 'ascending' ? cmp : -cmp;
-        });
-        [...groupRows, ...sortableRows].forEach(row => tbody.appendChild(row));
-        allRows.splice(0, allRows.length, ...Array.from(tbody.rows));
-        updateVisibility();
-      };
-      th.addEventListener('click', sort);
-      th.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); sort(); } });
-    });
-    updateVisibility();
+let dataviewGlobalHandlersReady = false;
+
+function initDataviewTables(root = document) {
+  ensureDataviewGlobalHandlers();
+  const wrappers = root.matches?.('.dataview-table-wrap') ? [root] : Array.from(root.querySelectorAll('.dataview-table-wrap'));
+  wrappers.forEach((wrap) => initDataviewWrapper(wrap));
+}
+
+function initDataviewWrapper(wrap, existingState) {
+  if (!wrap || wrap.dataset.dataviewInitialized === 'true') return;
+  wrap.dataset.dataviewInitialized = 'true';
+  const state = existingState || createDataviewState(wrap);
+  state.wrap = wrap;
+  wrap.__dataviewState = state;
+  restoreDataviewTextFilter(wrap, state);
+  restoreDataviewPageSize(wrap, state);
+  initDataviewPagination(wrap, state);
+  initDataviewAjaxControls(wrap, state);
+  initDataviewMultiFilters(wrap, state);
+  initDataviewSortHeaders(wrap, state);
+  setDataviewLoading(wrap, false);
+}
+
+function createDataviewState(wrap) {
+  return {
+    page: 1,
+    q: wrap.querySelector('input.dataview-filter[data-dataview-filter]')?.value || '',
+    pageSize: wrap.querySelector('[data-dataview-page-size]')?.value || '0',
+    sortField: '',
+    sortDir: '',
+    requestId: 0,
+    abortController: null,
+    debounceTimer: null,
+    loading: false,
+    wrap: wrap,
+  };
+}
+
+function initDataviewPagination(wrap, state) {
+  const table = wrap.querySelector('.dataview-table');
+  const pageSizeSelect = wrap.querySelector('[data-dataview-page-size]');
+  if (!table || !table.tBodies[0]) return;
+  pageSizeSelect?.addEventListener('change', () => {
+    state.pageSize = pageSizeSelect.value || '0';
+    state.page = 1;
+    updateDataviewPager(wrap, state);
   });
+  updateDataviewPager(wrap, state);
+}
+
+function updateDataviewPager(wrap, state) {
+  const table = wrap.querySelector('.dataview-table');
+  const pager = wrap.querySelector('[data-dataview-pager]');
+  const pageSizeSelect = wrap.querySelector('[data-dataview-page-size]');
+  const tbody = table?.tBodies[0];
+  if (!tbody) return;
+  const allRows = Array.from(tbody.rows);
+  const isGroupRow = (row) => row.classList.contains('dataview-group');
+  const isNoRowsRow = (row) => Boolean(row.querySelector('.dataview-no-rows'));
+  const dataRows = allRows.filter((row) => !isGroupRow(row) && !isNoRowsRow(row));
+  const pageSize = Number(pageSizeSelect?.value || state.pageSize || 0);
+  const maxPage = pageSize > 0 ? Math.max(1, Math.ceil(dataRows.length / pageSize)) : 1;
+  state.page = Math.min(Math.max(1, state.page || 1), maxPage);
+  let seen = 0;
+  allRows.forEach((row) => {
+    if (isGroupRow(row) || isNoRowsRow(row) || pageSize === 0) {
+      row.hidden = false;
+      return;
+    }
+    seen += 1;
+    row.hidden = seen <= (state.page - 1) * pageSize || seen > state.page * pageSize;
+  });
+  if (!pager) return;
+  if (pageSize > 0 && dataRows.length > pageSize) {
+    pager.innerHTML = '<button type="button" data-dataview-prev>Prev</button><span>Page ' + state.page + ' / ' + maxPage + ' · ' + dataRows.length + ' rows</span><button type="button" data-dataview-next>Next</button>';
+    pager.querySelector('[data-dataview-prev]')?.addEventListener('click', () => { state.page = Math.max(1, state.page - 1); updateDataviewPager(wrap, state); });
+    pager.querySelector('[data-dataview-next]')?.addEventListener('click', () => { state.page = Math.min(maxPage, state.page + 1); updateDataviewPager(wrap, state); });
+  } else {
+    pager.innerHTML = '<span>' + dataRows.length + ' rows</span>';
+  }
+}
+
+function restoreDataviewPageSize(wrap, state) {
+  const select = wrap.querySelector('[data-dataview-page-size]');
+  if (!select) return;
+  const value = state.pageSize || select.value || '0';
+  if ([...select.options].some((option) => option.value === value)) select.value = value;
+  state.pageSize = select.value || '0';
+}
+
+function restoreDataviewTextFilter(wrap, state) {
+  const input = wrap.querySelector('input.dataview-filter[data-dataview-filter]');
+  if (input && state.q !== undefined) input.value = state.q;
+}
+
+function initDataviewAjaxControls(wrap, state) {
+  if (!isAjaxDataviewWrapper(wrap)) return;
+  const textFilter = wrap.querySelector('input.dataview-filter[data-dataview-filter]');
+  textFilter?.addEventListener('input', () => {
+    state.page = 1;
+    window.clearTimeout(state.debounceTimer);
+    state.debounceTimer = window.setTimeout(() => requestDataviewTable(wrap, state), 200);
+  });
+  wrap.querySelectorAll('select[data-dataview-filter]').forEach((select) => {
+    select.addEventListener('change', () => {
+      state.page = 1;
+      requestDataviewTable(wrap, state);
+    });
+  });
+}
+
+function initDataviewSortHeaders(wrap, state) {
+  if (!isAjaxDataviewWrapper(wrap)) return;
+  wrap.querySelectorAll('th[data-dataview-sort][data-dataview-sort-field]').forEach((th) => {
+    th.tabIndex = 0;
+    const sort = () => {
+      if (state.loading) return;
+      const field = th.dataset.dataviewSortField || '';
+      if (!field) return;
+      const nextDir = state.sortField === field && state.sortDir === 'desc' ? 'asc' : 'desc';
+      state.sortField = field;
+      state.sortDir = nextDir;
+      wrap.querySelectorAll('th[data-dataview-sort]').forEach((header) => {
+        header.setAttribute('aria-sort', header === th ? (nextDir === 'desc' ? 'descending' : 'ascending') : 'none');
+      });
+      state.page = 1;
+      requestDataviewTable(wrap, state);
+    };
+    th.addEventListener('click', sort);
+    th.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        sort();
+      }
+    });
+  });
+}
+
+function isAjaxDataviewWrapper(wrap) {
+  return wrap?.dataset.dataviewAction === 'renderDataviewTable' && Boolean(wrap.dataset.dataviewTable);
+}
+
+function buildDataviewRequestURL(wrap, state) {
+  const url = new URL(location.pathname, location.origin);
+  url.searchParams.set('action', wrap.dataset.dataviewAction || 'renderDataviewTable');
+  url.searchParams.set('table', wrap.dataset.dataviewTable || '');
+  const q = (wrap.querySelector('input.dataview-filter[data-dataview-filter]')?.value || '').trim();
+  if (q) url.searchParams.set('q', q);
+  wrap.querySelectorAll('select[data-dataview-filter]').forEach((select) => {
+    const field = select.getAttribute('data-dataview-filter') || '';
+    if (field && select.value) url.searchParams.append('filter.' + field, select.value);
+  });
+  wrap.querySelectorAll('select[multiple][data-dataview-filter-multi]').forEach((select) => {
+    const field = select.getAttribute('data-dataview-filter-multi') || '';
+    if (!field) return;
+    Array.from(select.selectedOptions).forEach((option) => {
+      if (option.value) url.searchParams.append('filter.' + field, option.value);
+    });
+  });
+  if (state.sortField && state.sortDir) {
+    url.searchParams.set('sort', state.sortField);
+    url.searchParams.set('dir', state.sortDir);
+  }
+  return url;
+}
+
+function requestDataviewTable(wrap, state) {
+  if (!isAjaxDataviewWrapper(wrap)) return;
+  window.clearTimeout(state.debounceTimer);
+  state.q = wrap.querySelector('input.dataview-filter[data-dataview-filter]')?.value || '';
+  state.pageSize = wrap.querySelector('[data-dataview-page-size]')?.value || state.pageSize || '0';
+  closeDataviewMultiMenus(wrap);
+  if (state.abortController) state.abortController.abort();
+  const requestId = state.requestId + 1;
+  state.requestId = requestId;
+  const controller = new AbortController();
+  state.abortController = controller;
+  state.loading = true;
+  setDataviewLoading(wrap, true);
+  const url = buildDataviewRequestURL(wrap, state);
+  fetch(url.toString(), {signal: controller.signal, credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}})
+    .then(async (response) => {
+      const html = await response.text();
+      if (requestId !== state.requestId) return;
+      state.loading = false;
+      state.abortController = null;
+      replaceDataviewResponse(wrap, state, html, response.ok);
+    })
+    .catch((err) => {
+      if (err?.name === 'AbortError' || requestId !== state.requestId) return;
+      state.loading = false;
+      state.abortController = null;
+      replaceDataviewResponse(wrap, state, '', false);
+    });
+}
+
+function replaceDataviewResponse(wrap, state, html, ok) {
+  const fragment = document.createElement('template');
+  fragment.innerHTML = html || '';
+  const newWrap = fragment.content.querySelector('.dataview-table-wrap[data-dataview-action="renderDataviewTable"]');
+  if (ok && newWrap) {
+    state.page = 1;
+    wrap.replaceWith(newWrap);
+    initDataviewWrapper(newWrap, state);
+    return;
+  }
+  const error = fragment.content.querySelector('.dataview-error') || fragment.content.firstElementChild || createDataviewErrorFragment();
+  wrap.replaceWith(error);
+}
+
+function createDataviewErrorFragment() {
+  const div = document.createElement('div');
+  div.className = 'dataview-error';
+  div.innerHTML = '<strong>Dataview non rendu</strong><p>Unable to update this table.</p>';
+  return div;
+}
+
+function setDataviewLoading(wrap, loading) {
+  wrap.classList.toggle('is-loading', Boolean(loading));
+  wrap.toggleAttribute('data-dataview-loading', Boolean(loading));
+  wrap.setAttribute('aria-busy', String(Boolean(loading)));
+  wrap.querySelectorAll('input,select,button').forEach((control) => { control.disabled = Boolean(loading); });
+  wrap.querySelectorAll('th[data-dataview-sort]').forEach((th) => { th.setAttribute('aria-disabled', String(Boolean(loading))); });
+}
+
+function initDataviewMultiFilters(wrap, state) {
+  wrap.querySelectorAll('.dataview-multi-filter').forEach((multi) => {
+    const button = multi.querySelector('.dataview-multi-btn[data-dataview-filter]');
+    const menu = multi.querySelector('.dataview-multi-menu');
+    const select = multi.querySelector('select[multiple][data-dataview-filter-multi]');
+    if (!button || !menu || !select) return;
+    button.dataset.dataviewFilterLabel = dataviewMultiLabel(button);
+    syncDataviewMultiFromSelect(multi);
+    button.addEventListener("click", () => {
+      if (state.loading) return;
+      if (button.getAttribute('aria-expanded') === 'true') closeDataviewMulti(multi, false);
+      else openDataviewMulti(multi, true);
+    });
+    button.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        openDataviewMulti(multi, true, 0);
+      } else if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        openDataviewMulti(multi, true, getDataviewMultiInputs(menu).length - 1);
+      }
+    });
+    menu.addEventListener('change', (ev) => {
+      if (!ev.target.matches('input[type="checkbox"]')) return;
+      syncDataviewMultiAfterToggle(multi, ev.target);
+      state.page = 1;
+      requestDataviewTable(wrap, state);
+    });
+    menu.addEventListener('keydown', (ev) => handleDataviewMultiKeydown(ev, multi, state));
+  });
+}
+
+function dataviewMultiLabel(button) {
+  const text = (button.textContent || '').trim();
+  const match = text.match(/^(.*):\s*(?:All|\d+\s+selected)$/);
+  return match ? match[1] : text.replace(/:\s*$/, '') || 'Filter';
+}
+
+function getDataviewMultiInputs(menu) {
+  return Array.from(menu.querySelectorAll('input[type="checkbox"]'));
+}
+
+function openDataviewMulti(multi, focusFirst = false, focusIndex = 0) {
+  const button = multi.querySelector('.dataview-multi-btn');
+  const menu = multi.querySelector('.dataview-multi-menu');
+  if (!button || !menu || button.disabled) return;
+  closeDataviewMultiMenus(document, multi);
+  menu.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  positionDataviewMultiMenu(button, menu);
+  const inputs = getDataviewMultiInputs(menu);
+  inputs.forEach((input, index) => { input.tabIndex = index === Math.max(0, focusIndex) ? 0 : -1; });
+  if (focusFirst && inputs.length) inputs[Math.max(0, Math.min(focusIndex, inputs.length - 1))].focus();
+}
+
+function closeDataviewMulti(multi, focusButton = false) {
+  const button = multi.querySelector('.dataview-multi-btn');
+  const menu = multi.querySelector('.dataview-multi-menu');
+  if (!button || !menu) return;
+  menu.hidden = true;
+  menu.style.removeProperty('left');
+  menu.style.removeProperty('top');
+  button.setAttribute('aria-expanded', 'false');
+  if (focusButton) button.focus();
+}
+
+function closeDataviewMultiMenus(root = document, exceptMulti = null) {
+  const scope = root || document;
+  scope.querySelectorAll?.('.dataview-multi-filter .dataview-multi-btn[aria-expanded="true"]').forEach((button) => {
+    const multi = button.closest('.dataview-multi-filter');
+    if (multi && multi !== exceptMulti) closeDataviewMulti(multi, false);
+  });
+}
+
+function positionDataviewMultiMenu(button, menu) {
+  const rect = button.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  const menuRect = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - menuRect.width - 8, rect.left));
+  const opensDown = rect.bottom + 6 + menuRect.height <= window.innerHeight - 8;
+  const top = opensDown ? Math.min(window.innerHeight - menuRect.height - 8, rect.bottom + 6) : Math.max(8, rect.top - menuRect.height - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+}
+
+function handleDataviewMultiKeydown(ev, multi, state) {
+  const menu = multi.querySelector('.dataview-multi-menu');
+  const inputs = getDataviewMultiInputs(menu);
+  const current = inputs.indexOf(ev.target);
+  if (ev.key === 'Escape') {
+    ev.preventDefault();
+    closeDataviewMulti(multi, true);
+  } else if (ev.key === 'Tab') {
+    closeDataviewMulti(multi, false);
+  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
+    ev.preventDefault();
+    let next = current;
+    if (ev.key === 'ArrowDown') next = current + 1;
+    else if (ev.key === 'ArrowUp') next = current - 1;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = inputs.length - 1;
+    focusDataviewMultiInput(inputs, next);
+  } else if (ev.key === 'Enter' || ev.key === ' ') {
+    ev.preventDefault();
+    if (current < 0 || state.loading) return;
+    inputs[current].checked = !inputs[current].checked;
+    syncDataviewMultiAfterToggle(multi, inputs[current]);
+    state.page = 1;
+    requestDataviewTable(multi.closest('.dataview-table-wrap'), state);
+  }
+}
+
+function focusDataviewMultiInput(inputs, index) {
+  if (!inputs.length) return;
+  const next = (index + inputs.length) % inputs.length;
+  inputs.forEach((input, i) => { input.tabIndex = i === next ? 0 : -1; });
+  inputs[next].focus();
+}
+
+function syncDataviewMultiFromSelect(multi) {
+  const select = multi.querySelector('select[multiple][data-dataview-filter-multi]');
+  const selected = new Set(Array.from(select?.selectedOptions || []).map((option) => option.value));
+  const inputs = getDataviewMultiInputs(multi.querySelector('.dataview-multi-menu'));
+  inputs.forEach((input) => {
+    input.checked = input.value ? selected.has(input.value) : selected.size === 0;
+    input.setAttribute('aria-checked', String(input.checked));
+    input.tabIndex = -1;
+  });
+  updateDataviewMultiButton(multi);
+}
+
+function syncDataviewMultiAfterToggle(multi, changedInput) {
+  const select = multi.querySelector('select[multiple][data-dataview-filter-multi]');
+  const inputs = getDataviewMultiInputs(multi.querySelector('.dataview-multi-menu'));
+  const allInput = inputs.find((input) => input.value === '');
+  if (changedInput.value === '') {
+    inputs.forEach((input) => { input.checked = input.value === ''; });
+    Array.from(select.options).forEach((option) => { option.selected = false; });
+  } else {
+    const selectedValues = new Set(inputs.filter((input) => input.value && input.checked).map((input) => input.value));
+    if (allInput) allInput.checked = selectedValues.size === 0;
+    Array.from(select.options).forEach((option) => { option.selected = selectedValues.has(option.value); });
+  }
+  inputs.forEach((input) => { input.setAttribute('aria-checked', String(input.checked)); });
+  updateDataviewMultiButton(multi);
+}
+
+function updateDataviewMultiButton(multi) {
+  const button = multi.querySelector('.dataview-multi-btn');
+  const select = multi.querySelector('select[multiple][data-dataview-filter-multi]');
+  if (!button || !select) return;
+  const count = Array.from(select.selectedOptions).filter((option) => option.value).length;
+  const label = button.dataset.dataviewFilterLabel || dataviewMultiLabel(button);
+  button.textContent = label + ': ' + (count > 0 ? count + ' selected' : 'All');
+}
+
+function ensureDataviewGlobalHandlers() {
+  if (dataviewGlobalHandlersReady) return;
+  dataviewGlobalHandlersReady = true;
+  document.addEventListener('click', (ev) => {
+    document.querySelectorAll('.dataview-multi-filter .dataview-multi-btn[aria-expanded="true"]').forEach((button) => {
+      const multi = button.closest('.dataview-multi-filter');
+      if (multi && !multi.contains(ev.target)) closeDataviewMulti(multi, false);
+    });
+  });
+  window.addEventListener('resize', () => closeDataviewMultiMenus());
+  window.addEventListener('scroll', () => closeDataviewMultiMenus(), true);
 }
