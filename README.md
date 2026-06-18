@@ -21,7 +21,7 @@ The application is designed for private use on a local network or over Tailscale
   - ambiguous links show a chooser page
   - missing links show a dedicated not-found page
 - **Frontmatter display** with `title:` used as the page title when present.
-- **Server-side Dataview rendering** for common Obsidian `TABLE`, `LIST`, and `TASK` queries with column dropdown filters, sorting, text search, and pagination; see [`docs/dataview.md`](docs/dataview.md).
+- **Server-side Dataview rendering** for common Obsidian `TABLE`, `LIST`, `TASK`, and `CALENDAR` queries with `TABLE` column dropdown filters, sorting, text search, and pagination; see [`docs/dataview.md`](docs/dataview.md).
 - **Sidebar vault tree** with collapsible folders and state persisted in `localStorage`.
 - **Home page** with favorites, latest daily note, and recently modified notes.
 - **Backlinks** computed on demand.

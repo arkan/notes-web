@@ -8,6 +8,10 @@ fenced `dataview` code blocks.
 - `TABLE` — render columns from frontmatter or computed expressions.
 - `LIST` — render matching notes as a list.
 - `TASK` — render task lists from matching notes.
+- `CALENDAR` — group matching notes by a date expression.
+
+Supported clauses are `FROM`, `WHERE`, `SORT`, `LIMIT`, `GROUP BY`, and
+`FLATTEN`. `FILTER` is supported for `TABLE` only.
 
 ## TABLE syntax
 
@@ -140,6 +144,24 @@ This renders a project table with:
 - Server-side text search via `Filter table…`.
 - Clickable column headers for server-side sorting.
 - Client-side pagination via the `Rows` dropdown.
+
+## CALENDAR queries
+
+Calendar queries render matching notes grouped by day. When no expression is
+provided, `file.mtime` is used.
+
+```dataview
+CALENDAR file.mtime
+FROM "Syntax"
+```
+
+The date expression may be a built-in date field such as `file.mtime` or
+`file.ctime`, a frontmatter date field, or a `date(...)` expression. Values that
+cannot be parsed as dates are skipped. If no rows contain a date, the calendar
+renders a visible `Aucune date.` message.
+
+`CALENDAR` does not render interactive table controls. `FILTER` in a `CALENDAR`
+query is unsupported and produces a visible Dataview error.
 
 ## LIST and TASK queries
 
