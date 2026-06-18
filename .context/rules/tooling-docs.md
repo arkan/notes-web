@@ -35,7 +35,7 @@ Rules for documentation, commands, packaging, and repo tooling.
 12. Preserve valid homepage block IDs: `today`, `calendar`, `todos`, `active_projects`, `selected_day`, `quick_jump`, `recent_notes`, `diagnostics`.
 13. Use `daily_glob` for daily briefings / selected-day calendar data and `daily_notes_glob` for real daily note previews.
 14. Update docs and tests together when commands, config, or public behavior changes.
-15. Keep planning files under `docs/plans/YYYY-MM-DD-<feature>.md` for non-trivial work.
+15. Keep detailed plans under ignored `docs/plans/YYYY-MM-DD-<feature>.md` only as local working artifacts; put durable decisions in versioned docs.
 
 ## Patterns
 

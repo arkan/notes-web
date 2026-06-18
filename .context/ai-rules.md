@@ -22,7 +22,7 @@ Project-wide hard rules for Notes Web. Keep this file short; put path-specific r
 16. Use Playwright E2E tests for browser-visible rendering, interaction, navigation, and AJAX behavior.
 17. After `npm ci`, use `make test-go` or `go test ./cmd/... ./internal/...`, not `go test ./...`.
 18. Remember embedded static assets: changes to templates, CSS, or JS require rebuilding/restarting the binary to affect a running app.
-19. For non-trivial work, write a concise plan under `docs/plans/YYYY-MM-DD-<feature>.md` and keep `tasks/todo.md` current.
+19. For non-trivial work, keep `tasks/todo.md` current. Detailed plans may live under ignored `docs/plans/YYYY-MM-DD-<feature>.md` as local working artifacts only; durable decisions belong in versioned docs.
 20. Run `git diff --check` before final response for code or documentation changes.
 21. Use specialist review for UI/UX, security, architecture, or high-risk multi-file changes.
 22. Keep Tier 1 concise; move explanations and rationale to on-demand references.

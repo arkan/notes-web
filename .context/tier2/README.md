@@ -11,6 +11,7 @@ OpenCode-compatible on-demand context for Notes Web. Load Tier 1 first, then loa
 
 ## Deep context files
 
+- `.context/tier2/rules-index.md` — non-normative index of path-scoped Tier 1 rule files and maintenance notes.
 - `.context/tier2/architecture.md` — request flow, vault/index model, rendering pipeline, subsystem map.
 - `.context/tier2/security-model.md` — trusted-vault threat model, auth, path safety, hidden paths, raw HTML, AJAX actions.
 - `.context/tier2/testing-strategy.md` — test placement, fixture vault strategy, validation matrix, command gotchas.

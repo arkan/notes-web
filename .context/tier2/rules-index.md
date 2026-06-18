@@ -1,4 +1,4 @@
-# Path-scoped rule index
+# Path-scoped Rule Index
 
 Non-normative index for Notes Web Tier 1 path-scoped rules. Normative loading rules live in `AGENTS.md` and `.context/ai-rules.md`.
 
@@ -17,11 +17,11 @@ Non-normative index for Notes Web Tier 1 path-scoped rules. Normative loading ru
 
 ## Rule files
 
-- `go-backend.md` — Go server, routing, rendering, vault model, config.
-- `dataview.md` — Dataview parser/eval/render/AJAX/docs.
-- `ui.md` — Templates, CSS, vanilla JS, design, accessibility.
-- `testing.md` — Go tests, Playwright, fixture vault, validation commands.
-- `tooling-docs.md` — README, product docs, Makefile, JS tooling, Nix, CI.
+- `.context/rules/go-backend.md` — Go server, routing, rendering, vault model, config.
+- `.context/rules/dataview.md` — Dataview parser/eval/render/AJAX/docs.
+- `.context/rules/ui.md` — Templates, CSS, vanilla JS, design, accessibility.
+- `.context/rules/testing.md` — Go tests, Playwright, fixture vault, validation commands.
+- `.context/rules/tooling-docs.md` — README, product docs, Makefile, JS tooling, Nix, CI.
 
 ## Tier 2 references
 

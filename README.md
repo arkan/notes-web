@@ -25,7 +25,7 @@ The application is designed for private use on a local network or over Tailscale
 - **Sidebar vault tree** with collapsible folders and state persisted in `localStorage`.
 - **Home page** with favorites, latest daily note, and recently modified notes.
 - **Backlinks** computed on demand.
-- **Full-text search** using `ripgrep` when available, with a native Go fallback.
+- **Full-text search** powered by native Go search over vault notes.
 - **TODO task IDs**: comments such as `<!-- tid:1c496356 -->` are rendered as copyable task ID badges.
 - **Inline non-Markdown files** served with the browser's native MIME handling.
 - **Optional Basic Auth** for private access over Tailscale/LAN.
@@ -33,7 +33,6 @@ The application is designed for private use on a local network or over Tailscale
 ## Requirements
 
 - A Markdown vault directory, for example `/home/arkan/hermes`.
-- `ripgrep` (`rg`) is optional but recommended for faster search.
 - Go 1.26+ is only required when building from source.
 
 ## Install from a prebuilt release archive
