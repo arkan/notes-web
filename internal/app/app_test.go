@@ -784,6 +784,10 @@ func TestHomeDashboardUsesCalendarActiveProjectsAndRecentNotes(t *testing.T) {
 	writeNote("Areas/Notes-web/Homepage.md", "# Homepage\n", "2026-05-22T14:00:00Z")
 	writeNote("Areas/Amsterdam/Move.md", "# Move\n", "2026-05-20T12:00:00Z")
 	writeNote("Areas/Santé/2026-05-21.md", "# Santé\n", "2026-05-21T09:00:00Z")
+	writeNote("Projects/France-Publications.md", "---\nstatus: active\n---\n# France-Publications\n", "2026-05-22T15:30:00Z")
+	writeNote("Projects/Notes-web.md", "---\nstatus: active\n---\n# Notes-web\n", "2026-05-22T14:30:00Z")
+	writeNote("Projects/Amsterdam/Move.md", "---\nstatus: active\n---\n# Move\n", "2026-05-20T12:30:00Z")
+	writeNote("Projects/Inactive.md", "---\nstatus: inactive\n---\n# Inactive\n", "2026-05-23T10:00:00Z")
 	writeNote("Areas/Daily Briefings/2026-05-21-briefing.md", "# Older Briefing\n", "2026-05-21T08:00:00Z")
 
 	dashboard, err := v.BuildDashboard()
@@ -804,6 +808,12 @@ func TestHomeDashboardUsesCalendarActiveProjectsAndRecentNotes(t *testing.T) {
 	}
 	if !activeProjectContains(dashboard.ActiveProjects, "Notes-web") || !activeProjectContains(dashboard.ActiveProjects, "Amsterdam") {
 		t.Fatalf("active projects missing expected project groups: %+v", dashboard.ActiveProjects)
+	}
+	if activeProjectContains(dashboard.ActiveProjects, "Santé") {
+		t.Fatalf("active projects should exclude non-Projects folders: %+v", dashboard.ActiveProjects)
+	}
+	if activeProjectContains(dashboard.ActiveProjects, "Inactive") {
+		t.Fatalf("active projects should exclude inactive projects: %+v", dashboard.ActiveProjects)
 	}
 
 	s := NewServer(v, "", "")
@@ -833,6 +843,50 @@ func TestHomeDashboardUsesCalendarActiveProjectsAndRecentNotes(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing dashboard homepage markup %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestActiveProjectsOnlyUseProjectsFolder(t *testing.T) {
+	v := makeVault(t)
+	writeProjectFixture := func(rel, body, mod string) {
+		t.Helper()
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mt, err := time.Parse(time.RFC3339, mod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeProjectFixture("Projects/Alpha.md", "---\nstatus: active\n---\n# Alpha\n", "2026-06-10T10:00:00Z")
+	writeProjectFixture("Projects/Beta/Plan.md", "---\nstatus: active\n---\n# Beta Plan\n", "2026-06-11T10:00:00Z")
+	writeProjectFixture("Projects/Done.md", "---\nstatus: done\n---\n# Done\n", "2026-06-14T10:00:00Z")
+	writeProjectFixture("Projects/NoStatus.md", "# No Status\n", "2026-06-15T10:00:00Z")
+	writeProjectFixture("Areas/Gamma/Plan.md", "---\nstatus: active\n---\n# Gamma Plan\n", "2026-06-12T10:00:00Z")
+	writeProjectFixture("Root.md", "# Root\n", "2026-06-13T10:00:00Z")
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := v.ActiveProjects(idx, 20)
+	if !activeProjectContains(projects, "Alpha") || !activeProjectContains(projects, "Beta") {
+		t.Fatalf("active projects should include direct project files and project folders: %+v", projects)
+	}
+	for _, project := range projects {
+		if project.Label == "Gamma" || project.Label == "Root" || project.Label == "Areas" || project.Label == "Done" || project.Label == "NoStatus" {
+			t.Fatalf("active projects should only include active Projects/ children: %+v", projects)
+		}
+		if !strings.HasPrefix(project.RelPath, "Projects/") {
+			t.Fatalf("active project rel path should stay under Projects/: %+v", project)
 		}
 	}
 }
@@ -949,24 +1003,37 @@ func TestHomepageTodayPreviewAndEmptyState(t *testing.T) {
 	defer func() { now = oldNow }()
 
 	v := makeVault(t)
+	// Create a daily note matching the default daily_notes_glob pattern
+	dailyRel := "Daily Notes/2026/2026-05/2026-05-22.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(dailyRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# May 22 Daily Note\nToday content with Heading One.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	s := NewServer(v, "", "")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{`data-home-block="today"`, `2026-05-22`, `class="home-today-preview content"`, `Heading One`, `Open full note`} {
+	for _, want := range []string{`data-home-block="today"`, `2026-05-22`, `class="home-today-preview content"`, `May 22 Daily Note`, `class="btn" href="/Daily%20Notes/2026/2026-05/2026-05-22.md"`, `Open full note`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing today preview markup %q in:\n%s", want, body)
 		}
 	}
+	if strings.Contains(body, `class="btn primary" href="/Daily%20Notes/2026/2026-05/2026-05-22.md"`) {
+		t.Fatalf("open full note should use the standard card action button, not primary:\n%s", body)
+	}
 
-	now = func() time.Time { return time.Date(2099, 1, 1, 12, 0, 0, 0, time.Local) }
+	// Empty state: use a date query for a date without any daily note or briefing
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest("GET", "/", nil)
+	r = httptest.NewRequest("GET", "/?date=2099-01-01", nil)
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
-	if !strings.Contains(body, `2099-01-01`) || !strings.Contains(body, `No daily note for today.`) {
-		t.Fatalf("today block should show empty state when no daily note exists:\n%s", body)
+	if !strings.Contains(body, `2099-01-01`) || !strings.Contains(body, `No daily note for this date.`) {
+		t.Fatalf("today block should show empty state when no daily note exists for selected date:\n%s", body)
 	}
 }
 
@@ -1014,7 +1081,7 @@ func TestHomepageOrderDefaultIncludesAllBlocks(t *testing.T) {
 	for i, b := range blocks {
 		ids[i] = b.ID
 	}
-	want := []string{"today", "quick_jump", "todos", "active_projects", "calendar", "selected_day", "recent_notes", "diagnostics"}
+	want := []string{"today", "calendar", "todos", "active_projects", "selected_day", "quick_jump", "recent_notes", "diagnostics"}
 	if len(ids) != len(want) {
 		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(want), want)
 	}
@@ -1037,7 +1104,7 @@ func TestHomepageOrderSkipsUnknownIDsAndAppendsMissing(t *testing.T) {
 		ids[i] = b.ID
 	}
 	// expected: today, diagnostics, todos, then remaining defaults in order
-	expected := []string{"today", "diagnostics", "todos", "quick_jump", "active_projects", "calendar", "selected_day", "recent_notes"}
+	expected := []string{"today", "diagnostics", "todos", "calendar", "active_projects", "selected_day", "quick_jump", "recent_notes"}
 	if len(ids) != len(expected) {
 		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(expected), expected)
 	}
@@ -1148,7 +1215,7 @@ func TestHomepageOrderFiltersHiddenBlocks(t *testing.T) {
 		ids[i] = b.ID
 	}
 	// todos is hidden, so we should get: calendar, today, then the rest in default order
-	expected := []string{"calendar", "today", "quick_jump", "active_projects", "selected_day", "recent_notes", "diagnostics"}
+	expected := []string{"calendar", "today", "active_projects", "selected_day", "quick_jump", "recent_notes", "diagnostics"}
 	if len(ids) != len(expected) {
 		t.Fatalf("got %d blocks %v, want %d %v", len(ids), ids, len(expected), expected)
 	}
@@ -1617,6 +1684,101 @@ func TestQuickJumpUnderscorePrefixedVaultPathRespectsHidden(t *testing.T) {
 	items := v.QuickJumpItems()
 	if len(items) != 1 || items[0].URL != "/_todo" {
 		t.Fatalf("expected hidden /_secret.md to be filtered while /_todo stays internal, got %+v", items)
+	}
+}
+
+func TestDailyNoteForDateUsesDailyNotesGlob(t *testing.T) {
+	v := makeVault(t)
+	// Create a real daily note matching default daily_notes_glob pattern
+	noteRel := "Daily Notes/2026/2026-06/2026-06-15.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(noteRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# Real Daily Note\nContent for 2026-06-15\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	note := v.DailyNoteForDate("2026-06-15")
+	if note == nil {
+		t.Fatalf("DailyNoteForDate should find note at %s", noteRel)
+	}
+	if !strings.Contains(note.Body, "Real Daily Note") {
+		t.Fatalf("DailyNoteForDate returned wrong note: %+v", note)
+	}
+	if note.RelPath != noteRel {
+		t.Fatalf("DailyNoteForDate relpath=%q, want %q", note.RelPath, noteRel)
+	}
+}
+
+func TestDailyNoteForDateMissingReturnsNil(t *testing.T) {
+	v := makeVault(t)
+	note := v.DailyNoteForDate("1999-01-01")
+	if note != nil {
+		t.Fatalf("DailyNoteForDate for non-existent date should return nil, got %+v", note)
+	}
+}
+
+func TestHomepageDateQueryRendersSelectedDateDailyNote(t *testing.T) {
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 6, 18, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	v := makeVault(t)
+	// Create a daily note for June 15 matching daily_notes_glob
+	dailyRel := "Daily Notes/2026/2026-06/2026-06-15.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(dailyRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# June 15 Note\nThis is the selected date daily note.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Also create a briefing for June 15 to prove the daily note wins
+	briefRel := "Areas/Daily Briefings/2026-06-15-briefing.md"
+	p2 := filepath.Join(v.Root, filepath.FromSlash(briefRel))
+	if err := os.MkdirAll(filepath.Dir(p2), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, []byte("# June 15 Briefing\nThis is the briefing and should NOT appear.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/?date=2026-06-15", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	// The daily note content should appear; the briefing content should NOT
+	if !strings.Contains(body, "This is the selected date daily note.") {
+		t.Fatalf("homepage should render the selected date daily note, got:\n%s", body)
+	}
+	if strings.Contains(body, "This is the briefing and should NOT appear") {
+		t.Fatalf("homepage should NOT render the briefing when a daily note exists:\n%s", body)
+	}
+	if !strings.Contains(body, `href="/Daily%20Notes/2026/2026-06/2026-06-15.md"`) {
+		t.Fatalf("open full note should point to the selected daily note:\n%s", body)
+	}
+}
+
+func TestHomepageDateQueryMissingDailyNoteShowsEmptyState(t *testing.T) {
+	oldNow := now
+	now = func() time.Time { return time.Date(2026, 6, 18, 12, 0, 0, 0, time.Local) }
+	defer func() { now = oldNow }()
+
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/?date=1999-01-01", nil)
+	s.ServeHTTP(w, r)
+	// Should not crash; should render homepage with empty daily note state
+	body := w.Body.String()
+	if !strings.Contains(body, `class="home-dashboard"`) {
+		t.Fatalf("homepage should render even when selected date has no daily note:\n%s", body)
+	}
+	if !strings.Contains(body, `1999-01-01`) || !strings.Contains(body, `No daily note for this date.`) {
+		t.Fatalf("homepage should show selected-date empty state when no daily note exists:\n%s", body)
 	}
 }
 

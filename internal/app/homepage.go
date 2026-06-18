@@ -51,21 +51,26 @@ func (s *Server) buildHomepageView(cfg Config, dashboard Dashboard) HomepageView
 	}
 	quickJump := v.QuickJumpItems()
 
-	// Today daily — always uses today's actual date via now()
-	todayStr := now().Format("2006-01-02")
+	// Today block — uses the selected dashboard date.
+	// Falls back to now() when dashboard has no selected date (e.g. tests).
+	todayStr := dashboard.SelectedDate
+	if todayStr == "" {
+		todayStr = now().Format("2006-01-02")
+	}
 	var todayNote *Note
 	var todayDoc *RenderedDoc
 
-	note := v.DailyForDate(todayStr)
+	note := v.DailyNoteForDate(todayStr)
 	if note != nil {
 		todayNote = note
 		doc := s.renderer.Render(*note)
 		todayDoc = &doc
 	}
 
-	// Homepage TODO buckets: overdue + today only
+	// Homepage TODO buckets: always use actual current date via now().
+	nowStr := now().Format("2006-01-02")
 	var todoOverdue, todoToday []TaskItem
-	board, err := v.BuildTaskBoard(todayStr)
+	board, err := v.BuildTaskBoard(nowStr)
 	if err == nil {
 		todoOverdue = board.Overdue
 		todoToday = board.Today
@@ -102,13 +107,25 @@ func (s *Server) templateDataForHome(title string, dashboard Dashboard, err erro
 // using the configured daily_glob and dateFromRel. Returns nil if not found.
 func (v *Vault) DailyForDate(date string) *Note {
 	cfg := v.LoadConfig()
+	return v.dailyNoteByGlob(date, cfg.DailyGlob)
+}
+
+// DailyNoteForDate returns the daily note for a specific date string (YYYY-MM-DD)
+// using the configured daily_notes_glob. Returns nil if not found.
+func (v *Vault) DailyNoteForDate(date string) *Note {
+	cfg := v.LoadConfig()
+	return v.dailyNoteByGlob(date, cfg.DailyNotesGlob)
+}
+
+// dailyNoteByGlob scans MarkdownFiles matching glob and returns the note whose
+// rel path dateFromRel matches the given date. Returns nil if not found.
+func (v *Vault) dailyNoteByGlob(date, glob string) *Note {
 	for _, p := range v.MarkdownFiles() {
 		rel := v.Rel(p)
-		ok, _ := filepath.Match(filepath.ToSlash(cfg.DailyGlob), rel)
+		ok, _ := filepath.Match(filepath.ToSlash(glob), rel)
 		if !ok {
 			continue
 		}
-		// Only match if the rel path contains the date and dateFromRel extracts it
 		if !strings.Contains(rel, date) {
 			continue
 		}

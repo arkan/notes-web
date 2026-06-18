@@ -265,10 +265,18 @@ func (v *Vault) ActiveProjects(idx *VaultIndex, limit int) []ActiveProject {
 	if idx == nil {
 		return nil
 	}
+	activeProjectRels := map[string]bool{}
+	for _, note := range idx.Notes {
+		_, rel, ok := activeProjectForRel(note.RelPath)
+		if !ok || !projectStatusActive(note) {
+			continue
+		}
+		activeProjectRels[rel] = true
+	}
 	projects := map[string]*ActiveProject{}
 	for _, note := range idx.Notes {
-		label, rel := projectForRel(note.RelPath)
-		if label == "Daily Briefings" || label == "Daily Notes" || label == "Areas" {
+		label, rel, ok := activeProjectForRel(note.RelPath)
+		if !ok || !activeProjectRels[rel] {
 			continue
 		}
 		project := projects[rel]
@@ -299,6 +307,34 @@ func (v *Vault) ActiveProjects(idx *VaultIndex, limit int) []ActiveProject {
 		out = out[:limit]
 	}
 	return out
+}
+
+func activeProjectForRel(rel string) (string, string, bool) {
+	rel = filepath.ToSlash(rel)
+	if rel == "Projects" || !strings.HasPrefix(rel, "Projects/") {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(rel, "Projects/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", "", false
+	}
+	projectName := parts[0]
+	projectRel := "Projects/" + projectName
+	if len(parts) == 1 {
+		projectName = strings.TrimSuffix(filepath.Base(projectName), filepath.Ext(projectName))
+	}
+	return projectName, projectRel, true
+}
+
+func projectStatusActive(note NoteMeta) bool {
+	if note.Frontmatter == nil {
+		return false
+	}
+	status, ok := note.Frontmatter["status"]
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(fmt.Sprint(status)), "active")
 }
 
 func projectForRel(rel string) (string, string) {

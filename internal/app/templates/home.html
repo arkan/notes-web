@@ -7,7 +7,7 @@
     <p class="eyebrow">Overview</p>
     <h1>Home</h1>
   </div>
-  <button class="copy-link btn ghost" data-copy-link>Copy link</button>
+  <button class="copy-link btn ghost" data-copy-path>Copy path</button>
 </div>
 
 {{if .Err}}<p class="error">{{.Err}}</p>{{end}}
@@ -19,10 +19,10 @@
         <section class="home-block home-block-today today-card card" data-home-block="today" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-today-title">
           <div class="section-heading home-block-heading">
             <div>
-              <p class="eyebrow">Today</p>
+              <p class="eyebrow">Daily note</p>
               <h2 id="home-today-title">{{$home.TodayDate}}</h2>
             </div>
-            {{if $home.TodayNote}}<a class="btn primary" href="{{url $home.TodayNote.RelPath}}">Open full note</a>{{end}}
+            {{if $home.TodayNote}}<a class="btn" href="{{url $home.TodayNote.RelPath}}">Open full note</a>{{end}}
           </div>
 
           {{if and $home.TodayNote $home.TodayDoc}}
@@ -31,7 +31,7 @@
               {{safe $home.TodayDoc.HTML}}
             </div>
           {{else}}
-            <p class="empty-state">No daily note for today.</p>
+            <p class="empty-state">No daily note for this date.</p>
           {{end}}
         </section>
       {{end}}

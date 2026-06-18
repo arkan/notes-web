@@ -655,6 +655,15 @@ func evalFunc(r dataviewRow, name string, args []string) any {
 		if len(args) == 1 {
 			return parseDateAny(evalValue(r, args[0]))
 		}
+	case "dateformat":
+		if len(args) == 2 {
+			t := parseDateAny(evalValue(r, args[0]))
+			if t.IsZero() {
+				return ""
+			}
+			format := displayPlain(evalValue(r, args[1]))
+			return t.Format(dataviewDateFormatToGo(format))
+		}
 	case "choice":
 		if len(args) == 3 {
 			if evalBoolExpr(r, args[0]) {
@@ -684,6 +693,37 @@ func evalFunc(r dataviewRow, name string, args []string) any {
 	}
 	return ""
 }
+
+func dataviewDateFormatToGo(format string) string {
+	repl := []struct{ from, to string }{
+		{"yyyy", "2006"},
+		{"YYYY", "2006"},
+		{"yy", "06"},
+		{"YY", "06"},
+		{"MMMM", "January"},
+		{"MMM", "Jan"},
+		{"MM", "01"},
+		{"M", "1"},
+		{"dd", "02"},
+		{"DD", "02"},
+		{"d", "2"},
+		{"D", "2"},
+		{"HH", "15"},
+		{"H", "15"},
+		{"hh", "03"},
+		{"h", "3"},
+		{"mm", "04"},
+		{"m", "4"},
+		{"ss", "05"},
+		{"s", "5"},
+	}
+	out := format
+	for _, r := range repl {
+		out = strings.ReplaceAll(out, r.from, r.to)
+	}
+	return out
+}
+
 func aggregateFunc(r dataviewRow, name string, args []string) any {
 	if len(args) != 1 {
 		return ""

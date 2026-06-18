@@ -580,6 +580,10 @@ function markCopied(el, label) {
   if (label) el.textContent = label;
   setTimeout(() => { el.classList.remove('copied'); if (label) el.textContent = old; }, 1200);
 }
+function currentCopyPath() {
+  const path = location.pathname || '/';
+  return path === '/' ? '/' : path.replace(/^\/+/, '');
+}
 function initNotesMaps() {
   document.querySelectorAll('[data-notes-map]').forEach((el) => {
     let data;
@@ -686,11 +690,11 @@ document.addEventListener('click', async (ev) => {
     setTimeout(() => closeTodoMenus(), 150);
     return;
   }
-  const link = ev.target.closest('[data-copy-link]');
-  if (link) {
+  const pathCopy = ev.target.closest('[data-copy-path]');
+  if (pathCopy) {
     ev.preventDefault();
-    await copyText(location.href);
-    markCopied(link, 'Link copied');
+    await copyText(currentCopyPath());
+    markCopied(pathCopy, 'Path copied');
   }
 });
 

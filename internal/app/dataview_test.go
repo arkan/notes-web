@@ -178,6 +178,25 @@ LIMIT 1`))
 	}
 }
 
+func TestDataviewDateformatRendersFileMtimeWithTime(t *testing.T) {
+	v := makeDataviewVault(t)
+	mtime := time.Date(2026, 6, 18, 14, 35, 0, 0, time.Local)
+	path := filepath.Join(v.Root, "Projects", "Alpha.md")
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	html := string(RenderDataviewBlock(v, `TABLE dateformat(file.mtime, "yyyy-MM-dd HH:mm") as "Dernière update"
+FROM "Projects"
+WHERE file.name = "Alpha"`))
+	if !strings.Contains(html, "2026-06-18 14:35") {
+		t.Fatalf("dateformat(file.mtime) should include date and time:\n%s", html)
+	}
+	if strings.Contains(html, ">—</td>") {
+		t.Fatalf("dateformat(file.mtime) should not render as an empty dash:\n%s", html)
+	}
+}
+
 func TestDataviewSupportsInlineClausesDateArithmeticListLinkAndFileContent(t *testing.T) {
 	v := makeDataviewVault(t)
 	writeDataviewFixture(t, v, "Areas/Health/Events/Recent.md", "---\ntitle: Recent Event\ntype: health-event\ndate: 2026-05-20\ncategory: appointment\nrelated:\n  - '[[Kyste pilonidal]]'\n---\n# Recent\nCiclopirox mention\n")

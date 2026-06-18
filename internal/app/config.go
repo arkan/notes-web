@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	DailyGlob    string         `yaml:"daily_glob"`
-	Hidden       []string       `yaml:"hidden"`
-	HiddenBlocks []string       `yaml:"hidden_blocks"`
-	FolderSort   string         `yaml:"folder_sort"`
-	Sidebar      SidebarConfig  `yaml:"sidebar"`
-	Homepage     HomepageConfig `yaml:"homepage"`
+	DailyGlob      string         `yaml:"daily_glob"`
+	DailyNotesGlob string         `yaml:"daily_notes_glob"`
+	Hidden         []string       `yaml:"hidden"`
+	HiddenBlocks   []string       `yaml:"hidden_blocks"`
+	FolderSort     string         `yaml:"folder_sort"`
+	Sidebar        SidebarConfig  `yaml:"sidebar"`
+	Homepage       HomepageConfig `yaml:"homepage"`
 }
 
 type UIConfig struct {
@@ -154,8 +155,8 @@ const (
 )
 
 var defaultHomepageOrder = []string{
-	BlockToday, BlockQuickJump, BlockTodos, BlockActiveProjects,
-	BlockCalendar, BlockSelectedDay, BlockRecentNotes, BlockDiagnostics,
+	BlockToday, BlockCalendar, BlockTodos, BlockActiveProjects,
+	BlockSelectedDay, BlockQuickJump, BlockRecentNotes, BlockDiagnostics,
 }
 
 var validBlockIDs = map[string]bool{
@@ -340,7 +341,7 @@ func (v VisibilityConfig) Hidden() bool {
 }
 
 func (v *Vault) LoadConfig() Config {
-	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", FolderSort: "name_asc"}
+	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", DailyNotesGlob: "Daily Notes/*/*/*.md", FolderSort: "name_asc"}
 	b, err := os.ReadFile(filepath.Join(v.Root, ".notes-web.yaml"))
 	if err != nil {
 		return cfg

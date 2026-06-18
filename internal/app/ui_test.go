@@ -15,7 +15,7 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary><span aria-hidden="true">📁</span> Areas</summary>`, `data-copy-link`} {
+	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary><span aria-hidden="true">📁</span> Areas</summary>`, `data-copy-path`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in home HTML", want)
 		}
@@ -28,9 +28,14 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	r = httptest.NewRequest("GET", "/_static/app.js", nil)
 	s.ServeHTTP(w, r)
 	js := w.Body.String()
-	for _, want := range []string{"copyText", "navigator.clipboard", "execCommand", "data-copy", "data-copy-code", "closest('pre')", "notes-web:sidebar-open", "data-tree-path", "localStorage"} {
+	for _, want := range []string{"copyText", "navigator.clipboard", "execCommand", "data-copy", "data-copy-code", "data-copy-path", "currentCopyPath", "location.pathname", "closest('pre')", "notes-web:sidebar-open", "data-tree-path", "localStorage"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("missing %q in app.js:\n%s", want, js)
+		}
+	}
+	for _, forbidden := range []string{"location.href", "data-copy-link", "Link copied"} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("app.js should not use %q for page path copying", forbidden)
 		}
 	}
 }
@@ -316,6 +321,13 @@ func TestVisualPolishFoundationAndPaletteStates(t *testing.T) {
 
 func TestHomepageProjectFilterClientContract(t *testing.T) {
 	v := makeVault(t)
+	projectPath := filepath.Join(v.Root, filepath.FromSlash("Projects/Filterable.md"))
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, []byte("---\nstatus: active\n---\n# Filterable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	s := NewServer(v, "", "")
 
 	w := httptest.NewRecorder()

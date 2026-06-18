@@ -274,7 +274,7 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 		`<a href="/Areas">Areas</a>`,
 		`<a href="/Areas/Daily%20Briefings" aria-current="page">Daily Briefings</a>`,
 		`<article class="folder-view reading-surface">`,
-		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions"><button class="copy-link btn ghost" data-copy-link>Copy link</button></div></header>`,
+		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions"><button class="copy-link btn ghost" data-copy-path>Copy path</button></div></header>`,
 		`<ul class="list folder-list">`,
 		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md">📄 2026-05-22-briefing.md</a>`,
 	} {
@@ -507,7 +507,7 @@ func TestTagsPagesAndBadges(t *testing.T) {
 		`<p class="eyebrow">Tag</p><h1>#daily</h1>`,
 		`<span class="count">1 note</span>`,
 		`<a class="btn ghost" href="/_tags">All tags</a>`,
-		`<button class="copy-link btn ghost" data-copy-link>Copy link</button>`,
+		`<button class="copy-link btn ghost" data-copy-path>Copy path</button>`,
 		`<ul class="note-card-grid tag-note-list">`,
 		`<li class="note-card tag-note-card">`,
 		`Daily Briefing`,

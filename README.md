@@ -191,6 +191,7 @@ Example:
 
 ```yaml
 daily_glob: "Areas/Daily Briefings/*-briefing.md"
+daily_notes_glob: "Daily Notes/*/*/*.md"
 folder_sort: name_asc
 sidebar:
   favorites:
@@ -207,11 +208,11 @@ sidebar:
 homepage:
   order:
     - today
-    - quick_jump
+    - calendar
     - todos
     - active_projects
-    - calendar
     - selected_day
+    - quick_jump
     - recent_notes
     - diagnostics
   blocks:
@@ -255,7 +256,11 @@ Set `sidebar.favorites.visible` to `false` to hide favorites from the sidebar an
 
 ### `daily_glob`
 
-A glob used to find the latest daily note shown on the home page.
+A glob pattern for daily briefing files, used by the sidebar calendar and the selected-day summary. Default: `Areas/Daily Briefings/*-briefing.md`.
+
+### `daily_notes_glob`
+
+A separate glob pattern for real daily note files, used by the homepage today block to render the selected date's daily note preview. Default: `Daily Notes/*/*/*.md`. This split lets you keep generated briefings in one location and hand-written daily notes in another; the homepage today block uses `daily_notes_glob` while the calendar and selected-day summary continue to use `daily_glob`.
 
 ### `folder_sort`
 
@@ -273,9 +278,9 @@ Controls sidebar UI sections while keeping the underlying internal routes availa
 
 Controls home page blocks while keeping the underlying internal routes available.
 
-- `homepage.order`: optional list of block IDs for homepage ordering. Unknown IDs are ignored; missing valid blocks are appended at the end in default order. Default: `today, quick_jump, todos, active_projects, calendar, selected_day, recent_notes, diagnostics`.
+- `homepage.order`: optional list of block IDs for homepage ordering. Unknown IDs are ignored; missing valid blocks are appended at the end in default order. Default: `today, calendar, todos, active_projects, selected_day, quick_jump, recent_notes, diagnostics`.
 - `homepage.blocks.<id>.visible`: set to `false` to hide a specific homepage block. All blocks visible by default.
-- `homepage.blocks.active_projects.limit`: max projects shown on homepage (default `20`).
+- `homepage.blocks.active_projects.limit`: max active projects from the `Projects/` folder shown on homepage (default `20`). A project is active when its frontmatter has `status: active`.
 - `homepage.blocks.recent_notes.limit`: max recent notes shown on homepage (default `10`).
 - `homepage.blocks.quick_jump.items`: list of `{label, path}` entries for the quick-jump block. Internal routes like `/_todo` and vault paths like `Areas/...` are supported. Absent `items` uses defaults; explicit `items: []` shows no links.
 - `homepage.blocks.todos.visible`: set to `false` to hide the home page TODO summary.
