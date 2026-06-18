@@ -22,11 +22,10 @@ function dataRows(page: Page): Locator {
   );
 }
 
-/** Wait for an AJAX Dataview response and let the DOM replacement settle. */
+/** Wait for an AJAX Dataview update and let the DOM replacement settle. */
 async function waitForAjax(page: Page): Promise<void> {
-  await page.waitForResponse(
-    (resp) =>
-      resp.url().includes("action=renderDataviewTable") && resp.status() === 200,
+  await page.waitForFunction(
+    () => !document.querySelector(".dataview-table-wrap[data-dataview-loading]"),
   );
   // Allow the DOM replacement microtask (replaceWith + initDataviewWrapper) to complete.
   await page.waitForTimeout(50);
