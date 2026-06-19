@@ -4,6 +4,16 @@ Notes Web is a small, self-contained Go web server for browsing a Markdown/Obsid
 
 The application is designed for private use on a local network or over Tailscale. It does not publish anything to the public Internet by itself.
 
+<p align="center">
+  <img src="assets/image 4.png" alt="Notes Web vault maintenance preview" width="880">
+</p>
+
+<p align="center">
+  <img src="assets/image 1.png" alt="Notes Web reading workbench preview" width="31%">
+  <img src="assets/image 2.png" alt="Notes Web dashboard preview" width="31%">
+  <img src="assets/image 3.png" alt="Notes Web note browsing preview" width="31%">
+</p>
+
 ## Features
 
 - **Filesystem URLs**: `/Areas/Daily%20Briefings/2026-05-22-briefing.md` maps directly to the matching file in the vault.
