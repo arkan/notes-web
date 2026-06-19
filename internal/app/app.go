@@ -91,8 +91,8 @@ func (v *Vault) URLForRel(rel string) string {
 }
 
 func (v *Vault) ResolveURLPath(urlPath string) (string, error) {
-	clean := strings.TrimPrefix(strings.Split(urlPath, "?")[0], "/")
-	dec, err := url.QueryUnescape(clean)
+	clean := strings.TrimPrefix(urlPath, "/")
+	dec, err := url.PathUnescape(clean)
 	if err != nil {
 		return "", err
 	}
@@ -282,10 +282,86 @@ func (v *Vault) RecentNotes(limit int) []Note {
 	}
 	return notes
 }
-func (v *Vault) Tree(maxDepth int) []TreeNode { return v.TreeForActive(maxDepth, "") }
+func (v *Vault) Tree(maxDepth int) []TreeNode {
+	return v.tree(v.Root, 0, maxDepth, "", v.LoadConfig().Hidden)
+}
 func (v *Vault) TreeForActive(maxDepth int, activeRel string) []TreeNode {
 	return v.tree(v.Root, 0, maxDepth, filepath.ToSlash(strings.TrimPrefix(activeRel, "/")), v.LoadConfig().Hidden)
 }
+
+func (v *Vault) SidebarTree(activeRel string) []TreeNode {
+	return v.sidebarTree(filepath.ToSlash(strings.Trim(strings.TrimPrefix(activeRel, "/"), "/")), v.LoadConfig().Hidden)
+}
+
+func (v *Vault) sidebarTree(activeRel string, hidden []string) []TreeNode {
+	ents, _ := os.ReadDir(v.Root)
+	sort.Slice(ents, func(i, j int) bool {
+		if ents[i].IsDir() != ents[j].IsDir() {
+			return ents[i].IsDir()
+		}
+		return strings.ToLower(ents[i].Name()) < strings.ToLower(ents[j].Name())
+	})
+
+	var out []TreeNode
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		p := filepath.Join(v.Root, e.Name())
+		rel := v.Rel(p)
+		if v.isHiddenRel(rel, hidden) {
+			continue
+		}
+		if !e.IsDir() && !v.IsMarkdown(p) {
+			continue
+		}
+
+		n := TreeNode{Name: e.Name(), Rel: rel, URL: v.URLForRel(rel), IsDir: e.IsDir()}
+		if activeRel != "" {
+			n.IsActive = rel == activeRel
+			n.ContainsActive = n.IsActive || (e.IsDir() && strings.HasPrefix(activeRel, rel+"/"))
+		}
+		if e.IsDir() && n.ContainsActive {
+			n.Children = v.activeBranchChildren(rel, activeRel, hidden)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func (v *Vault) activeBranchChildren(parentRel, activeRel string, hidden []string) []TreeNode {
+	if activeRel == "" || parentRel == activeRel || !strings.HasPrefix(activeRel, parentRel+"/") {
+		return nil
+	}
+
+	rest := strings.TrimPrefix(activeRel, parentRel+"/")
+	next, _, _ := strings.Cut(rest, "/")
+	if next == "" || strings.HasPrefix(next, ".") {
+		return nil
+	}
+	childRel := parentRel + "/" + next
+	if v.isHiddenRel(childRel, hidden) {
+		return nil
+	}
+
+	childPath := filepath.Join(v.Root, filepath.FromSlash(childRel))
+	st, err := os.Stat(childPath)
+	if err != nil {
+		return nil
+	}
+	if !st.IsDir() && !v.IsMarkdown(childPath) {
+		return nil
+	}
+
+	n := TreeNode{Name: filepath.Base(childPath), Rel: childRel, URL: v.URLForRel(childRel), IsDir: st.IsDir()}
+	n.IsActive = childRel == activeRel
+	n.ContainsActive = n.IsActive || (n.IsDir && strings.HasPrefix(activeRel, childRel+"/"))
+	if n.IsDir {
+		n.Children = v.activeBranchChildren(childRel, activeRel, hidden)
+	}
+	return []TreeNode{n}
+}
+
 func (v *Vault) tree(dir string, depth, max int, activeRel string, hidden []string) []TreeNode {
 	ents, _ := os.ReadDir(dir)
 	sort.Slice(ents, func(i, j int) bool {
@@ -414,37 +490,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.auth(w, r) {
 		return
 	}
+	gw := maybeGzip(w, r)
+	defer gw.Close()
+
 	if strings.HasPrefix(r.URL.Path, "/_static/") {
-		s.static(w, r)
+		s.static(gw, r)
 		return
 	}
 	switch r.URL.Path {
 	case "/":
-		s.home(w, r)
+		s.home(gw, r)
 	case "/_search":
-		s.search(w, r)
+		s.search(gw, r)
 	case "/_api/palette":
-		s.paletteAPI(w, r)
+		s.paletteAPI(gw, r)
 	case "/_resolve":
-		s.resolve(w, r)
+		s.resolve(gw, r)
 	case "/_missing":
-		s.missing(w, r)
+		s.missing(gw, r)
 	case "/_tags":
-		s.tags(w, r)
+		s.tags(gw, r)
 	case "/_todo":
-		s.todo(w, r)
+		s.todo(gw, r)
 	case "/_broken-links":
-		s.brokenLinks(w, r)
+		s.brokenLinks(gw, r)
 	case "/_dataview":
-		s.dataviewDiagnostics(w, r)
+		s.dataviewDiagnostics(gw, r)
 	case "/_orphans":
-		s.orphans(w, r)
+		s.orphans(gw, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/_tags/") {
-			s.tag(w, r)
+			s.tag(gw, r)
 			return
 		}
-		s.path(w, r)
+		s.path(gw, r)
 	}
 }
 
@@ -470,11 +549,9 @@ func (s *Server) common(title string) map[string]any {
 	return s.commonForActive(title, "")
 }
 
-const sidebarTreeDepth = 3
-
 func (s *Server) commonForActive(title, activeRel string) map[string]any {
 	cfg := s.vault.LoadConfig()
-	return map[string]any{"Title": title, "Tree": s.vault.TreeForActive(sidebarTreeDepth, activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
+	return map[string]any{"Title": title, "Tree": s.vault.SidebarTree(activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -582,8 +659,15 @@ func (s *Server) brokenLinks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dataviewDiagnostics(w http.ResponseWriter, r *http.Request) {
-	items := ScanDataviewDiagnostics(s.vault)
+	idx, idxErr := s.vault.BuildIndex()
+	var items []dataviewDiagnostic
+	if idxErr == nil && idx != nil {
+		items = ScanDataviewDiagnosticsFromIndex(idx)
+	} else {
+		items = ScanDataviewDiagnostics(s.vault)
+	}
 	c := s.common("Dataview diagnostics")
+	c["Err"] = idxErr
 	c["Diagnostics"] = items
 	c["Total"] = len(items)
 	unsupported := 0
@@ -613,7 +697,24 @@ func (s *Server) todo(w http.ResponseWriter, r *http.Request) {
 	if today == "" {
 		today = time.Now().Format("2006-01-02")
 	}
-	board, err := s.vault.BuildTaskBoard(today)
+	idx, idxErr := s.vault.BuildIndex()
+	var board TaskBoard
+	var err error
+	if idxErr == nil && idx != nil {
+		resolver := NewIndexResolver(idx)
+		tasks, taskErr := s.vault.IndexTasks(idx, resolver)
+		if taskErr == nil {
+			board = buildBoardFromTasks(tasks, today)
+		} else {
+			err = taskErr
+		}
+	} else {
+		err = idxErr
+	}
+	// Fallback: if index path failed, use the old full-scan BuildTaskBoard.
+	if err != nil {
+		board, err = s.vault.BuildTaskBoard(today)
+	}
 	c := s.common("TODOs")
 	c["Err"] = err
 	c["Today"] = today
@@ -753,7 +854,7 @@ func tagAlphabeticalGroups(tags []TagSummary) []TagGroup {
 }
 
 func (s *Server) path(w http.ResponseWriter, r *http.Request) {
-	p, err := s.vault.ResolveURLPath(r.URL.Path)
+	p, err := s.vault.ResolveURLPath(r.URL.EscapedPath())
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
@@ -785,13 +886,42 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		doc := s.renderer.Render(n)
+
+		// Build index once and reuse for rendering, forward links, and backlinks,
+		// avoiding per-note full-vault scans. If BuildIndex errors, degrade safely
+		// by falling back to the original per-note methods.
+		idx, idxErr := s.vault.BuildIndex()
+		var resolver *IndexResolver
+		if idxErr == nil && idx != nil {
+			resolver = NewIndexResolver(idx)
+		}
+
+		renderer := s.renderer
+		if idx != nil {
+			renderer = s.renderer.WithIndex(idx)
+		} else if resolver != nil {
+			renderer = s.renderer.WithResolver(resolver)
+		}
+		doc := renderer.Render(n)
+
 		c := s.commonForActive(doc.Title, n.RelPath)
 		c["Note"] = n
 		c["Doc"] = doc
 		c["Breadcrumbs"] = breadcrumbsForRel(s.vault, n.RelPath)
-		c["ForwardLinks"] = s.vault.ForwardLinksFrom(n)
-		c["Backlinks"] = s.vault.BacklinksWithContext(n.RelPath)
+
+		if resolver != nil {
+			noteMeta, ok := idx.ByRel[n.RelPath]
+			if ok {
+				c["ForwardLinks"] = ForwardLinksFromIndex(s.vault, noteMeta, resolver)
+			} else {
+				c["ForwardLinks"] = s.vault.ForwardLinksFrom(n)
+			}
+			c["Backlinks"] = BacklinksFromIndex(idx, n.RelPath)
+		} else {
+			c["ForwardLinks"] = s.vault.ForwardLinksFrom(n)
+			c["Backlinks"] = s.vault.BacklinksWithContext(n.RelPath)
+		}
+
 		s.render(w, "note", c)
 		return
 	}
@@ -857,6 +987,10 @@ func folderSortLinks(baseURL string, selected folderSort) []map[string]any {
 func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 	cfg := s.vault.LoadConfig()
 	selectedSort := folderSortFromRequest(r, cfg)
+	var idx *VaultIndex
+	if selectedSort.Field == "modified" {
+		idx, _ = s.vault.BuildIndex()
+	}
 	ents, _ := os.ReadDir(p)
 	var items []map[string]any
 	for _, e := range ents {
@@ -865,20 +999,36 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 		}
 		pp := filepath.Join(p, e.Name())
 		rel := s.vault.Rel(pp)
-		if s.vault.HiddenRel(rel) {
+		if s.vault.isHiddenRel(rel, cfg.Hidden) {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
-			continue
+		item := map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel)}
+		if selectedSort.Field == "modified" {
+			if idx != nil && !e.IsDir() {
+				if meta, ok := idx.ByRel[rel]; ok {
+					item["ModTime"] = meta.ModTime
+				} else {
+					info, err := e.Info()
+					if err != nil {
+						continue
+					}
+					item["ModTime"] = info.ModTime()
+				}
+			} else {
+				info, err := e.Info()
+				if err != nil {
+					continue
+				}
+				item["ModTime"] = info.ModTime()
+			}
 		}
-		items = append(items, map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel), "ModTime": info.ModTime()})
+		items = append(items, item)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if selectedSort.Field == "modified" {
-			left := items[i]["ModTime"].(time.Time)
-			right := items[j]["ModTime"].(time.Time)
-			if !left.Equal(right) {
+			left, lok := items[i]["ModTime"].(time.Time)
+			right, rok := items[j]["ModTime"].(time.Time)
+			if lok && rok && !left.Equal(right) {
 				if selectedSort.Dir == "desc" {
 					return left.After(right)
 				}
@@ -892,13 +1042,21 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 		}
 		return left < right
 	})
-	c := s.common(filepath.Base(p))
+	// Cap large folder listings: first 100 entries for fast initial page load.
+	// Browsing can use search/palette or narrower folders for deeper access.
+	totalItems := len(items)
+	if totalItems > 100 {
+		items = items[:100]
+	}
 	relPath := s.vault.Rel(p)
+	c := s.commonForActive(filepath.Base(p), relPath)
 	c["Path"] = relPath
 	c["FolderName"] = filepath.Base(p)
 	c["Breadcrumbs"] = breadcrumbsForRel(s.vault, relPath)
 	c["Items"] = items
 	c["SortLinks"] = folderSortLinks(s.vault.URLForRel(relPath), selectedSort)
+	c["TotalItems"] = totalItems
+	c["Capped"] = totalItems > 100
 	s.render(w, "folder", c)
 }
 

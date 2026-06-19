@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
@@ -17,12 +18,43 @@ import (
 )
 
 type Renderer struct {
-	vault *Vault
-	md    goldmark.Markdown
+	vault    *Vault
+	md       goldmark.Markdown
+	resolver *IndexResolver
+	idx      *VaultIndex // optional, enables index-backed preprocessing
 }
 
 func NewRenderer(v *Vault) *Renderer {
 	return &Renderer{vault: v, md: goldmark.New(goldmark.WithExtensions(extension.GFM, extension.Footnote, highlighting.NewHighlighting(highlighting.WithStyle("github"))), goldmark.WithParserOptions(parser.WithAutoHeadingID()), goldmark.WithRendererOptions(htmlrenderer.WithUnsafe()))}
+}
+
+var (
+	taskIDCommentRe   = regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
+	markdownTableRe   = regexp.MustCompile(`(?s)<table([^>]*)>.*?</table>`)
+	taskListContentRe = regexp.MustCompile(`(?s)(<li class="task-list-item"><input\b[^>]*>)(.*?)(\n?<ul class="contains-task-list">|</li>)`)
+	dueDateMetaRe     = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
+	doneDateMetaRe    = regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
+	recurMetaRe       = regexp.MustCompile(`🔁\s*([^<
+]+)`)
+	priorityMetaRe        = regexp.MustCompile(`[⏫🔼🔽⏬]`)
+	codeBlockHTMLRe       = regexp.MustCompile(`(?s)<pre([^>]*)><code([^>]*)>(.*?)</code></pre>`)
+	largeCodeFenceRe      = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)\\n```")
+	calloutBlockquoteRe   = regexp.MustCompile(`(?s)<blockquote>\s*<p>\[!(\w+)\]([+-]?)\s*([^\n<]*)\n(.*?)</p>\s*</blockquote>`)
+	mermaidFenceRe        = regexp.MustCompile("(?s)```mermaid\n(.*?)\n```")
+	markdownHeadingLineRe = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
+)
+
+// WithResolver returns a copy of the Renderer with the given resolver set,
+// enabling index-backed wikilink resolution instead of per-link vault scans.
+func (r *Renderer) WithResolver(resolver *IndexResolver) *Renderer {
+	return &Renderer{vault: r.vault, md: r.md, resolver: resolver}
+}
+
+// WithIndex returns a copy of the Renderer with the given vault index and
+// resolver set, enabling index-backed preprocessing (dataview, notes-map,
+// wikilinks) without rebuilding the index or scanning all vault files.
+func (r *Renderer) WithIndex(idx *VaultIndex) *Renderer {
+	return &Renderer{vault: r.vault, md: r.md, resolver: NewIndexResolver(idx), idx: idx}
 }
 
 func (r *Renderer) Render(n Note) RenderedDoc {
@@ -90,15 +122,13 @@ func normalizeRenderedHTML(s string) string {
 	s = decorateTaskMetadata(s)
 	s = decorateCodeBlocks(s)
 	s = decorateMarkdownTables(s)
-	tidRe := regexp.MustCompile(`<!--\s*tid:([A-Za-z0-9_-]+)\s*-->`)
-	s = tidRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
+	s = taskIDCommentRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
 	s = wrapTaskListItemContent(s)
 	return s
 }
 
 func decorateMarkdownTables(s string) string {
-	re := regexp.MustCompile(`(?s)<table([^>]*)>.*?</table>`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
+	return markdownTableRe.ReplaceAllStringFunc(s, func(match string) string {
 		if strings.Contains(match, `dataview-table`) || strings.Contains(match, `markdown-table-wrap`) {
 			return match
 		}
@@ -119,9 +149,8 @@ func wrapTaskListItemContent(s string) string {
 	if !strings.Contains(s, `class="task-list-item"`) {
 		return s
 	}
-	re := regexp.MustCompile(`(?s)(<li class="task-list-item"><input\b[^>]*>)(.*?)(\n?<ul class="contains-task-list">|</li>)`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
-		parts := re.FindStringSubmatch(match)
+	return taskListContentRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := taskListContentRe.FindStringSubmatch(match)
 		if len(parts) != 4 || strings.Contains(parts[2], `class="task-list-content"`) {
 			return match
 		}
@@ -131,22 +160,16 @@ func wrapTaskListItemContent(s string) string {
 }
 
 func decorateTaskMetadata(s string) string {
-	dueRe := regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
-	s = dueRe.ReplaceAllString(s, `<span class="task-meta due-date" title="Due date">Due $1</span>`)
-	doneRe := regexp.MustCompile(`✅\s*(\d{4}-\d{2}-\d{2})`)
-	s = doneRe.ReplaceAllString(s, `<span class="task-meta done-date" title="Done date">Done $1</span>`)
-	recurRe := regexp.MustCompile(`🔁\s*([^<
-]+)`)
-	s = recurRe.ReplaceAllString(s, `<span class="task-meta repeat-meta" title="Repeats">Repeats $1</span>`)
-	priorityRe := regexp.MustCompile(`[⏫🔼🔽⏬]`)
-	s = priorityRe.ReplaceAllString(s, `<span class="task-meta priority-meta" title="Priority">Priority</span>`)
+	s = dueDateMetaRe.ReplaceAllString(s, `<span class="task-meta due-date" title="Due date">Due $1</span>`)
+	s = doneDateMetaRe.ReplaceAllString(s, `<span class="task-meta done-date" title="Done date">Done $1</span>`)
+	s = recurMetaRe.ReplaceAllString(s, `<span class="task-meta repeat-meta" title="Repeats">Repeats $1</span>`)
+	s = priorityMetaRe.ReplaceAllString(s, `<span class="task-meta priority-meta" title="Priority">Priority</span>`)
 	return s
 }
 
 func decorateCodeBlocks(s string) string {
-	re := regexp.MustCompile(`(?s)<pre([^>]*)><code([^>]*)>(.*?)</code></pre>`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
-		parts := re.FindStringSubmatch(match)
+	return codeBlockHTMLRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := codeBlockHTMLRe.FindStringSubmatch(match)
 		if len(parts) != 4 {
 			return match
 		}
@@ -155,13 +178,102 @@ func decorateCodeBlocks(s string) string {
 }
 
 func (r *Renderer) preprocess(s string) string {
-	s = preprocessDataviewBlocks(s, r.vault)
-	s = preprocessNotesMapBlocks(s, r.vault)
+	if r.idx != nil {
+		s = preprocessDataviewBlocksWithIndex(s, r.vault, r.idx)
+		s = preprocessNotesMapBlocksWithIndex(s, r.vault, r.idx)
+	} else {
+		s = preprocessDataviewBlocks(s, r.vault)
+		s = preprocessNotesMapBlocks(s, r.vault)
+	}
+	s = preprocessLargeCodeFences(s)
 	s = preprocessCallouts(s)
 	s = preprocessMermaid(s)
+	if r.resolver != nil {
+		return r.preprocessWikiLinksWithResolver(s)
+	}
 	return wikiLinkRe.ReplaceAllStringFunc(s, func(m string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(m, "[["), "]]")
 		return r.vault.wikiLinkMarkdown(inner, m)
+	})
+}
+
+// preprocessLargeCodeFences truncates fenced code blocks that exceed size
+// thresholds, keeping the first 200 lines and adding a visible notice.
+// This prevents Goldmark from spending excessive time rendering huge blocks.
+// Special fences (dataview, notes-map, mermaid) are left untouched.
+func preprocessLargeCodeFences(s string) string {
+	const maxCodeFenceLines = 200
+	const maxCodeFenceBytes = 40 * 1024
+
+	return largeCodeFenceRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := largeCodeFenceRe.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		info := parts[1]
+		lang := strings.ToLower(info)
+		// Leave special fenced blocks untouched.
+		if lang == "dataview" || lang == "notes-map" || lang == "mermaid" {
+			return match
+		}
+		content := parts[2]
+		lines := strings.Split(content, "\n")
+		// Check both line count and byte size.
+		if len(lines) <= maxCodeFenceLines && len(content) <= maxCodeFenceBytes {
+			return match
+		}
+
+		truncated := content
+		noteDetail := fmt.Sprintf("Showing first %d of %d lines.", len(lines), len(lines))
+		if len(lines) > maxCodeFenceLines {
+			truncated = strings.Join(lines[:maxCodeFenceLines], "\n")
+			noteDetail = fmt.Sprintf("Showing first %d of %d lines.", maxCodeFenceLines, len(lines))
+		}
+		if len(truncated) > maxCodeFenceBytes {
+			truncated = truncateUTF8Bytes(truncated, maxCodeFenceBytes)
+			if len(lines) <= maxCodeFenceLines {
+				noteDetail = "Showing first 40 KiB of a very long code block."
+			}
+		}
+		note := fmt.Sprintf("\n\n*Large code block shortened for page speed. %s The full content is available in the source file.*\n", noteDetail)
+		return "```" + info + "\n" + truncated + "\n```" + note
+	})
+}
+
+func truncateUTF8Bytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.ValidString(s[:cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// preprocessWikiLinksWithResolver resolves wikilinks using the index resolver,
+// avoiding per-link full vault scans via ResolveWikiLink.
+func (r *Renderer) preprocessWikiLinksWithResolver(s string) string {
+	return wikiLinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		inner := strings.TrimSuffix(strings.TrimPrefix(match, "[["), "]]")
+		link, ok := parseWikiLink(inner)
+		if !ok {
+			return match
+		}
+		res := r.resolver.Resolve(link.Raw)
+		switch res.Kind {
+		case "unique":
+			u := r.vault.URLForRel(res.RelPath)
+			if link.TargetWithHeading != link.Target {
+				heading := strings.TrimPrefix(link.TargetWithHeading, link.Target+"#")
+				u += "#" + slugify(heading)
+			}
+			return "[" + link.Display + "](" + u + ")"
+		case "ambiguous":
+			return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(link.Target) + ")"
+		default:
+			return "[" + link.Display + "](/_missing?name=" + url.QueryEscape(link.Target) + ")"
+		}
 	})
 }
 
@@ -170,9 +282,8 @@ func preprocessCallouts(s string) string {
 }
 
 func decorateCalloutsHTML(s string) string {
-	re := regexp.MustCompile(`(?s)<blockquote>\s*<p>\[!(\w+)\]([+-]?)\s*([^\n<]*)\n(.*?)</p>\s*</blockquote>`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
-		parts := re.FindStringSubmatch(match)
+	return calloutBlockquoteRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := calloutBlockquoteRe.FindStringSubmatch(match)
 		if len(parts) != 5 {
 			return match
 		}
@@ -268,8 +379,7 @@ func calloutIcon(kind string) string {
 }
 
 func preprocessMermaid(s string) string {
-	re := regexp.MustCompile("(?s)```mermaid\n(.*?)\n```")
-	return re.ReplaceAllString(s, "<pre class=\"mermaid\">$1</pre>")
+	return mermaidFenceRe.ReplaceAllString(s, "<pre class=\"mermaid\">$1</pre>")
 }
 
 func renderFrontmatter(fm map[string]any) string {
@@ -291,9 +401,8 @@ func renderFrontmatter(fm map[string]any) string {
 }
 
 func tocFromMarkdown(s string) []TOCItem {
-	re := regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
 	var out []TOCItem
-	for _, m := range re.FindAllStringSubmatch(s, -1) {
+	for _, m := range markdownHeadingLineRe.FindAllStringSubmatch(s, -1) {
 		txt := stripMD(m[2])
 		out = append(out, TOCItem{Level: len(m[1]), Text: txt, ID: slugify(txt)})
 	}

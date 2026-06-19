@@ -1,6 +1,9 @@
 package app
 
 import (
+	"compress/gzip"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -324,6 +327,59 @@ func writeNoteForFolderSortTest(t *testing.T, v *Vault, rel, mod string) {
 	}
 }
 
+func TestFolderPageCapsAt100Entries(t *testing.T) {
+	v := makeVault(t)
+	// Create 250 notes in a test folder.
+	dir := "LargeFolder"
+	for i := 0; i < 250; i++ {
+		rel := fmt.Sprintf("%s/Note%03d.md", dir, i)
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# Note\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/"+dir, nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Showing first 100 of 250") {
+		t.Fatalf("expected cap message for 250 entries, got:\n%s", body)
+	}
+	// Should render roughly 100 list items.
+	itemCount := strings.Count(body, `<li><a`)
+	if itemCount < 90 || itemCount > 110 {
+		t.Fatalf("expected about 100 <li><a items, got %d", itemCount)
+	}
+	// Sort links should still be present.
+	if !strings.Contains(body, `sort=name&amp;dir=asc`) {
+		t.Fatalf("folder sort links should remain when capped:\n%s", body)
+	}
+
+	// Small folder (under 100) should not be capped.
+	smallDir := "SmallFolder"
+	for i := 0; i < 5; i++ {
+		rel := fmt.Sprintf("%s/File%03d.md", smallDir, i)
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# Small\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest("GET", "/"+smallDir, nil)
+	s.ServeHTTP(w2, r2)
+	body2 := w2.Body.String()
+	if strings.Contains(body2, "Showing first 100") {
+		t.Fatalf("small folder should not show cap message:\n%s", body2)
+	}
+}
+
 func assertInOrder(t *testing.T, body string, first string, second string) {
 	t.Helper()
 	if listStart := strings.Index(body, `<ul class="list folder-list">`); listStart >= 0 {
@@ -366,6 +422,42 @@ func TestMarkdownTablesAreWrappedForMobileHorizontalScroll(t *testing.T) {
 		if !strings.Contains(doc.HTML, want) {
 			t.Fatalf("markdown table missing mobile wrapper %q in:\n%s", want, doc.HTML)
 		}
+	}
+}
+
+func TestLargeCodeFenceIsShortened(t *testing.T) {
+	v := makeVault(t)
+	// 300 lines of code should trigger the 200-line cap.
+	var lines []string
+	for i := 0; i < 300; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	fence := "```go\n" + strings.Join(lines, "\n") + "\n```"
+	body := "# Large code\n\n" + fence + "\n"
+	doc := NewRenderer(v).Render(Note{RelPath: "Large.md", Body: body})
+	html := doc.HTML
+	if !strings.Contains(html, "Large code block shortened") {
+		t.Fatalf("expected code fence shortening note, got:\n%s", html)
+	}
+	if !strings.Contains(html, "Showing first 200 of 300") {
+		t.Fatalf("expected 'Showing first 200 of 300' note, got:\n%s", html)
+	}
+	// Short code fence (50 lines) should not be truncated.
+	var shortLines []string
+	for i := 0; i < 50; i++ {
+		shortLines = append(shortLines, fmt.Sprintf("short line %d", i))
+	}
+	shortFence := "```py\n" + strings.Join(shortLines, "\n") + "\n```"
+	shortBody := "# Small code\n\n" + shortFence + "\n"
+	shortDoc := NewRenderer(v).Render(Note{RelPath: "Small.md", Body: shortBody})
+	if strings.Contains(shortDoc.HTML, "Large code block shortened") {
+		t.Fatalf("short code fence should not be shortened:\n%s", shortDoc.HTML)
+	}
+
+	longLineBody := "# Long line\n\n```txt\n" + strings.Repeat("x", 50*1024) + "\n```\n"
+	longLineDoc := NewRenderer(v).Render(Note{RelPath: "LongLine.md", Body: longLineBody})
+	if !strings.Contains(longLineDoc.HTML, "Showing first 40 KiB of a very long code block") {
+		t.Fatalf("single-line oversized code fence should be shortened without panic:\n%s", longLineDoc.HTML)
 	}
 }
 
@@ -2692,5 +2784,147 @@ func TestDataviewTableActionRenderAllTables(t *testing.T) {
 	}
 	if !strings.Contains(body, `data-dataview-table="1"`) {
 		t.Fatalf("full page render missing table index:\n%s", body)
+	}
+}
+
+func TestQuestionMarkInFilename(t *testing.T) {
+	v := makeVault(t)
+	// Create a note with a literal "?" in the filename, simulating
+	// files like "11 - Pourquoi une VM ?.md".
+	noteRel := "Areas/Learning/11 - Pourquoi une VM ?.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(noteRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# Pourquoi une VM ?\n\nQuestion mark test.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	// The URL must encode "?" as %3F so it is not treated as a query separator.
+	r := httptest.NewRequest("GET", "/Areas/Learning/11%20-%20Pourquoi%20une%20VM%20%3F.md", nil)
+	s.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("question-mark note status=%d, want 200: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Pourquoi une VM ?") {
+		t.Fatalf("question-mark note body missing expected text:\n%s", w.Body.String())
+	}
+
+	// Verify that an actual query parameter still works on the path.
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest("GET", "/Areas/Learning/11%20-%20Pourquoi%20une%20VM%20%3F.md?action=unknown", nil)
+	s.ServeHTTP(w2, r2)
+	// The action is unknown but the path should still resolve to the note.
+	if w2.Code != 400 {
+		// unknown action returns 400 but path should resolve (no 404)
+		t.Fatalf("question-mark note with query status=%d, want 400: %s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestGzipCompressesHTMLAndCSS(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"homepage", "/"},
+		{"todo", "/_todo?today=2026-05-20"},
+		{"dataview", "/_dataview"},
+		{"style css", "/_static/style.css"},
+		{"app js", "/_static/app.js"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", tc.path, nil)
+			r.Header.Set("Accept-Encoding", "gzip")
+			s.ServeHTTP(w, r)
+
+			if w.Code != 200 {
+				t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
+			}
+			ce := w.Header().Get("Content-Encoding")
+			if ce != "gzip" {
+				t.Fatalf("Content-Encoding = %q, want gzip", ce)
+			}
+			if w.Header().Get("Vary") != "Accept-Encoding" {
+				t.Fatalf("Vary header = %q, want Accept-Encoding", w.Header().Get("Vary"))
+			}
+			// Verify body is valid gzip and decompresses.
+			zr, err := gzip.NewReader(w.Body)
+			if err != nil {
+				t.Fatalf("gzip.NewReader: %v", err)
+			}
+			decompressed, err := io.ReadAll(zr)
+			if err != nil {
+				t.Fatalf("decompress: %v", err)
+			}
+			zr.Close()
+			if len(decompressed) == 0 {
+				t.Fatal("decompressed body is empty")
+			}
+		})
+	}
+}
+
+func TestGzipWithoutAcceptEncoding(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	// Without Accept-Encoding, response must not be gzip compressed.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Content-Encoding") == "gzip" {
+		t.Fatal("response without Accept-Encoding must not be gzip compressed")
+	}
+	if !strings.Contains(w.Body.String(), "Home") {
+		t.Fatalf("uncompressed body missing expected content:\n%s", w.Body.String())
+	}
+}
+
+func TestGzipAcceptEncodingQuality(t *testing.T) {
+	if !acceptsGzip("br, gzip;q=0.5") {
+		t.Fatal("gzip with positive q value should be accepted")
+	}
+	if acceptsGzip("br, gzip;q=0") {
+		t.Fatal("gzip with q=0 should be rejected")
+	}
+}
+
+func TestGzipSkipsBinaryServeFile(t *testing.T) {
+	v := makeVault(t)
+	// Create a binary file (non-Markdown) to test that ServeFile is not compressed.
+	p := filepath.Join(v.Root, "Assets", "test.png")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("fake png content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Assets/test.png", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
+	}
+	// Binary files should not be gzip compressed.
+	if w.Header().Get("Content-Encoding") == "gzip" {
+		t.Fatal("binary file must not be gzip compressed")
+	}
+	if got, want := w.Body.String(), "fake png content\n"; got != want {
+		t.Fatalf("binary response body was modified by gzip wrapper: got %q, want %q", got, want)
 	}
 }

@@ -22,6 +22,7 @@ type Dashboard struct {
 	Calendar        MonthCalendar
 	SelectedDay     SelectedDaySummary
 	OpenTasks       []TaskItem
+	AllTasks        []TaskItem // full task list (including completed), populated from index
 	BrokenLinkCount int
 	OrphanNoteCount int
 }
@@ -202,12 +203,12 @@ func (v *Vault) BuildDashboardFor(selectedOverride time.Time) (Dashboard, error)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	tasks, err := v.AllTasks()
+	resolver := NewIndexResolver(idx)
+	tasks, err := v.IndexTasks(idx, resolver)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	resolver := NewIndexResolver(idx)
-	latestDaily := v.LatestDaily()
+	latestDaily := v.LatestDailyFromIndex(idx)
 	selected := selectedOverride
 	if selected.IsZero() {
 		selected = selectedDashboardDate(latestDaily)
@@ -225,6 +226,7 @@ func (v *Vault) BuildDashboardFor(selectedOverride time.Time) (Dashboard, error)
 		SelectedDay:     selectedDaySummary(idx, selected),
 		BrokenLinkCount: CountBrokenWikiLinks(idx, resolver),
 		OrphanNoteCount: CountOrphanNotes(idx, resolver),
+		AllTasks:        tasks,
 	}
 	for _, task := range tasks {
 		if !task.Completed {
@@ -464,53 +466,7 @@ func (v *Vault) BuildTaskBoard(today string) (TaskBoard, error) {
 	if err != nil {
 		return TaskBoard{}, err
 	}
-	board := TaskBoard{}
-	tagCounts := map[string]int{}
-	for _, task := range tasks {
-		seenTags := map[string]bool{}
-		for _, tag := range task.Tags {
-			if tag == "" || seenTags[tag] {
-				continue
-			}
-			seenTags[tag] = true
-			tagCounts[tag]++
-		}
-		task.DateClass = task.DueClass(today)
-		switch {
-		case task.Completed:
-			board.Done = append(board.Done, task)
-		case task.Due == "":
-			board.NoDate = append(board.NoDate, task)
-		case task.Due < today:
-			board.Overdue = append(board.Overdue, task)
-		case task.Due == today:
-			board.Today = append(board.Today, task)
-		default:
-			board.Upcoming = append(board.Upcoming, task)
-		}
-	}
-	for tag, count := range tagCounts {
-		board.Tags = append(board.Tags, TaskTag{Name: tag, Count: count})
-	}
-	sort.Slice(board.Tags, func(i, j int) bool {
-		return board.Tags[i].Name < board.Tags[j].Name
-	})
-	sort.SliceStable(board.Done, func(i, j int) bool {
-		if board.Done[i].Done != board.Done[j].Done {
-			if board.Done[i].Done == "" {
-				return false
-			}
-			if board.Done[j].Done == "" {
-				return true
-			}
-			return board.Done[i].Done > board.Done[j].Done
-		}
-		if board.Done[i].SourceRel != board.Done[j].SourceRel {
-			return board.Done[i].SourceRel < board.Done[j].SourceRel
-		}
-		return board.Done[i].LineNo < board.Done[j].LineNo
-	})
-	return board, nil
+	return buildBoardFromTasks(tasks, today), nil
 }
 
 func (v *Vault) AllTasks() ([]TaskItem, error) {
@@ -558,6 +514,140 @@ func (v *Vault) AllTasks() ([]TaskItem, error) {
 		return tasks[i].LineNo < tasks[j].LineNo
 	})
 	return tasks, nil
+}
+
+// IndexTasks walks the vault index for todo.md notes and parses task lines from
+// NoteMeta.Body, using the resolver for wikilink resolution. This avoids the
+// AllTasks() cost of reading every markdown file from disk. Falls back to
+// AllTasks() when idx is nil (e.g. no index available).
+func (v *Vault) IndexTasks(idx *VaultIndex, resolver *IndexResolver) ([]TaskItem, error) {
+	if idx == nil || resolver == nil {
+		return v.AllTasks()
+	}
+	var tasks []TaskItem
+	for _, meta := range idx.Notes {
+		if strings.ToLower(filepath.Base(meta.RelPath)) != "todo.md" {
+			continue
+		}
+		project, _ := projectForRel(meta.RelPath)
+		lines := strings.Split(meta.Body, "\n")
+		for i, line := range lines {
+			if task, ok := parseTaskLine(line); ok {
+				task.SourceRel = meta.RelPath
+				task.SourceURL = v.URLForRel(meta.RelPath)
+				task.Project = taskProject(task, project)
+				task.RenderedText = v.TaskTextHTMLWithResolver(task.Text, resolver)
+				task.LineNo = i + 1
+				tasks = append(tasks, task)
+			}
+		}
+	}
+	sort.SliceStable(tasks, func(i, j int) bool {
+		if tasks[i].Completed != tasks[j].Completed {
+			return !tasks[i].Completed
+		}
+		if tasks[i].Due != tasks[j].Due {
+			if tasks[i].Due == "" {
+				return false
+			}
+			if tasks[j].Due == "" {
+				return true
+			}
+			return tasks[i].Due < tasks[j].Due
+		}
+		if tasks[i].PriorityRank != tasks[j].PriorityRank {
+			return normalizePriorityRank(tasks[i].PriorityRank) < normalizePriorityRank(tasks[j].PriorityRank)
+		}
+		if tasks[i].SourceRel != tasks[j].SourceRel {
+			return tasks[i].SourceRel < tasks[j].SourceRel
+		}
+		return tasks[i].LineNo < tasks[j].LineNo
+	})
+	return tasks, nil
+}
+
+// TaskTextHTMLWithResolver renders task text as HTML, resolving wikilinks via
+// the index resolver instead of per-link vault scans (preprocessWikiLinks).
+func (v *Vault) TaskTextHTMLWithResolver(text string, resolver *IndexResolver) template.HTML {
+	return template.HTML(linkifyTaskText(preprocessWikiLinksWithResolver(v, text, resolver)))
+}
+
+// LatestDailyFromIndex returns the most recent daily note from the index,
+// avoiding a full MarkdownFiles() scan. Returns nil if no daily note is found.
+func (v *Vault) LatestDailyFromIndex(idx *VaultIndex) *Note {
+	if idx == nil {
+		return v.LatestDaily()
+	}
+	cfg := v.LoadConfig()
+	var best NoteMeta
+	var found bool
+	for _, meta := range idx.Notes {
+		ok, _ := filepath.Match(filepath.ToSlash(cfg.DailyGlob), meta.RelPath)
+		if !ok {
+			continue
+		}
+		if !found || meta.ModTime.After(best.ModTime) {
+			best = meta
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	return &Note{RelPath: best.RelPath, Body: best.Body, Frontmatter: best.Frontmatter, ModTime: best.ModTime}
+}
+
+// buildBoardFromTasks groups tasks into a TaskBoard by due date relative to today.
+// This is the shared bucketing logic used by BuildTaskBoard and callers that
+// already have tasks from an index.
+func buildBoardFromTasks(tasks []TaskItem, today string) TaskBoard {
+	board := TaskBoard{}
+	tagCounts := map[string]int{}
+	for _, task := range tasks {
+		seenTags := map[string]bool{}
+		for _, tag := range task.Tags {
+			if tag == "" || seenTags[tag] {
+				continue
+			}
+			seenTags[tag] = true
+			tagCounts[tag]++
+		}
+		task.DateClass = task.DueClass(today)
+		switch {
+		case task.Completed:
+			board.Done = append(board.Done, task)
+		case task.Due == "":
+			board.NoDate = append(board.NoDate, task)
+		case task.Due < today:
+			board.Overdue = append(board.Overdue, task)
+		case task.Due == today:
+			board.Today = append(board.Today, task)
+		default:
+			board.Upcoming = append(board.Upcoming, task)
+		}
+	}
+	for tag, count := range tagCounts {
+		board.Tags = append(board.Tags, TaskTag{Name: tag, Count: count})
+	}
+	sort.Slice(board.Tags, func(i, j int) bool {
+		return board.Tags[i].Name < board.Tags[j].Name
+	})
+	sort.SliceStable(board.Done, func(i, j int) bool {
+		if board.Done[i].Done != board.Done[j].Done {
+			if board.Done[i].Done == "" {
+				return false
+			}
+			if board.Done[j].Done == "" {
+				return true
+			}
+			return board.Done[i].Done > board.Done[j].Done
+		}
+		if board.Done[i].SourceRel != board.Done[j].SourceRel {
+			return board.Done[i].SourceRel < board.Done[j].SourceRel
+		}
+		return board.Done[i].LineNo < board.Done[j].LineNo
+	})
+	return board
 }
 
 var (

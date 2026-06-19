@@ -67,13 +67,21 @@ func (s *Server) buildHomepageView(cfg Config, dashboard Dashboard) HomepageView
 		todayDoc = &doc
 	}
 
-	// Homepage TODO buckets: always use actual current date via now().
+	// Homepage TODO buckets: use pre-loaded dashboard tasks when available
+	// (populated from index in BuildDashboardFor), falling back to a fresh
+	// BuildTaskBoard call when dashboard.AllTasks is empty.
 	nowStr := now().Format("2006-01-02")
 	var todoOverdue, todoToday []TaskItem
-	board, err := v.BuildTaskBoard(nowStr)
-	if err == nil {
+	if len(dashboard.AllTasks) > 0 {
+		board := buildBoardFromTasks(dashboard.AllTasks, nowStr)
 		todoOverdue = board.Overdue
 		todoToday = board.Today
+	} else {
+		board, err := v.BuildTaskBoard(nowStr)
+		if err == nil {
+			todoOverdue = board.Overdue
+			todoToday = board.Today
+		}
 	}
 
 	return HomepageView{
@@ -98,7 +106,6 @@ func (s *Server) templateDataForHome(title string, dashboard Dashboard, err erro
 	c["Dashboard"] = dashboard
 	c["Err"] = err
 	c["Latest"] = dashboard.LatestDaily
-	c["Recent"] = s.vault.RecentNotes(10)
 	c["HomepageView"] = s.buildHomepageView(cfg, dashboard)
 	return c
 }

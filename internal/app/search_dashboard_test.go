@@ -246,6 +246,8 @@ func TestNoteBreadcrumbSegmentsAreClickableAndShareReadingWidth(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
+		`<details class="tree-folder active-branch" data-tree-path="Areas" open>`,
+		`<details class="tree-folder active-branch" data-tree-path="Areas/Daily Briefings" open>`,
 		`<nav class="crumb reading-surface" aria-label="Breadcrumb">`,
 		`<a href="/">Home</a>`,
 		`<a href="/Areas">Areas</a>`,
@@ -269,6 +271,8 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
+		`<details class="tree-folder active-branch" data-tree-path="Areas" open>`,
+		`<details class="tree-folder active-branch" data-tree-path="Areas/Daily Briefings" open>`,
 		`<nav class="crumb reading-surface" aria-label="Breadcrumb">`,
 		`<a href="/">Home</a>`,
 		`<a href="/Areas">Areas</a>`,

@@ -193,6 +193,69 @@ func preprocessNotesMapBlocks(s string, v *Vault) string {
 	})
 }
 
+// buildNotesMapDataFromIndex builds notes-map point data using an existing
+// VaultIndex, avoiding MarkdownFiles()+ReadNote per-file scan.
+func buildNotesMapDataFromIndex(idx *VaultIndex, cfg notesMapConfig) notesMapData {
+	data := notesMapData{Config: cfg}
+	prefix := filepath.ToSlash(strings.Trim(cfg.From, "/"))
+	for _, meta := range idx.Notes {
+		rel := filepath.ToSlash(meta.RelPath)
+		if rel == prefix || !strings.HasPrefix(rel, prefix+"/") {
+			continue
+		}
+		if !frontmatterMatches(meta.Frontmatter, cfg.Where) {
+			continue
+		}
+		lat, okLat := frontmatterFloat(meta.Frontmatter, cfg.Lat)
+		lon, okLon := frontmatterFloat(meta.Frontmatter, cfg.Lon)
+		if !okLat || !okLon {
+			data.SkippedMissingCoords++
+			continue
+		}
+		title := frontmatterString(meta.Frontmatter, cfg.Title)
+		if title == "" {
+			title = meta.Title
+		}
+		point := notesMapPoint{
+			Title:               title,
+			Subtitle:            frontmatterString(meta.Frontmatter, cfg.Subtitle),
+			ColorValue:          frontmatterString(meta.Frontmatter, cfg.Color),
+			Lat:                 lat,
+			Lon:                 lon,
+			URL:                 meta.URL,
+			RelPath:             rel,
+			Address:             frontmatterString(meta.Frontmatter, "address"),
+			MapURL:              frontmatterString(meta.Frontmatter, "map_url"),
+			Website:             frontmatterString(meta.Frontmatter, "website"),
+			DistanceHome:        frontmatterString(meta.Frontmatter, "distance_home_min"),
+			DistanceNoorderpark: frontmatterString(meta.Frontmatter, "distance_noorderpark_min"),
+			Status:              frontmatterString(meta.Frontmatter, "status"),
+		}
+		data.Points = append(data.Points, point)
+	}
+	sort.SliceStable(data.Points, func(i, j int) bool {
+		return strings.ToLower(data.Points[i].Title) < strings.ToLower(data.Points[j].Title)
+	})
+	return data
+}
+
+// preprocessNotesMapBlocksWithIndex is the index-backed variant that reuses
+// a pre-built VaultIndex, avoiding a full vault scan.
+func preprocessNotesMapBlocksWithIndex(s string, v *Vault, idx *VaultIndex) string {
+	re := notesMapFenceRe()
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		parts := re.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		cfg, err := parseNotesMapConfig(parts[1])
+		if err != nil {
+			return renderNotesMapError(err)
+		}
+		return renderNotesMapBlock(buildNotesMapDataFromIndex(idx, cfg))
+	})
+}
+
 func notesMapFenceRe() *regexp.Regexp {
 	return regexp.MustCompile("(?s)```notes-map\\s*\\n(.*?)\\n```")
 }

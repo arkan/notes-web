@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var dataviewFenceRe = regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
+
 // dataviewBlockSpan describes one fenced dataview block in the source text.
 type dataviewBlockSpan struct {
 	Start, End int    // byte indices in text including fences
@@ -19,8 +21,7 @@ type dataviewBlockSpan struct {
 // scanDataviewBlocks finds all fenced dataview blocks in the text and classifies them.
 // It returns blocks in document order.
 func scanDataviewBlocks(text string) []dataviewBlockSpan {
-	re := regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
-	matches := re.FindAllStringSubmatchIndex(text, -1)
+	matches := dataviewFenceRe.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -142,6 +143,13 @@ func renderDataviewTableBlockWithParams(v *Vault, idx *VaultIndex, q dataviewQue
 		return dataviewError(q.String(), err)
 	}
 
+	capped := false
+	totalRows := len(rows)
+	if q.Limit < 0 && totalRows > 10 {
+		rows = rows[:10]
+		capped = true
+	}
+
 	// Determine sort metadata for the rendered output.
 	sortField := params.Sort
 	sortDir := params.Dir
@@ -154,7 +162,14 @@ func renderDataviewTableBlockWithParams(v *Vault, idx *VaultIndex, q dataviewQue
 		}
 	}
 
-	return renderDataviewTableHTML(q, rows, states, tableIndex, sortField, sortDir)
+	html := renderDataviewTableHTML(q, rows, states, tableIndex, sortField, sortDir)
+	if capped {
+		note := `<div class="dataview-cap-note" role="note">Showing first 10 of ` +
+			fmt.Sprintf("%d", totalRows) +
+			` rows. Add LIMIT to the Dataview query to control this view.</div>`
+		return template.HTML(note + string(html))
+	}
+	return html
 }
 
 // queryString returns the query as a string for error display.
@@ -213,19 +228,27 @@ func (q dataviewQuery) String() string {
 }
 
 func preprocessDataviewBlocks(s string, v *Vault) string {
-	re := regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
-	if !re.MatchString(s) {
+	if !dataviewFenceRe.MatchString(s) {
 		return s
 	}
 	idx, err := v.BuildIndex()
 	if err != nil {
-		return re.ReplaceAllStringFunc(s, func(m string) string {
-			parts := re.FindStringSubmatch(m)
+		return dataviewFenceRe.ReplaceAllStringFunc(s, func(m string) string {
+			parts := dataviewFenceRe.FindStringSubmatch(m)
 			if len(parts) != 2 {
 				return m
 			}
 			return string(dataviewError(parts[1], err))
 		})
+	}
+	return renderAllDataviewBlocks(s, v, idx)
+}
+
+// preprocessDataviewBlocksWithIndex is the index-backed variant that reuses
+// a pre-built VaultIndex, avoiding a second BuildIndex() call.
+func preprocessDataviewBlocksWithIndex(s string, v *Vault, idx *VaultIndex) string {
+	if !dataviewFenceRe.MatchString(s) {
+		return s
 	}
 	return renderAllDataviewBlocks(s, v, idx)
 }

@@ -341,7 +341,7 @@ func (v VisibilityConfig) Hidden() bool {
 }
 
 func (v *Vault) LoadConfig() Config {
-	cfg := Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", DailyNotesGlob: "Daily Notes/*/*/*.md", FolderSort: "name_asc"}
+	cfg := defaultConfig()
 	b, err := os.ReadFile(filepath.Join(v.Root, ".notes-web.yaml"))
 	if err != nil {
 		return cfg
@@ -350,4 +350,8 @@ func (v *Vault) LoadConfig() Config {
 		return cfg
 	}
 	return cfg
+}
+
+func defaultConfig() Config {
+	return Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", DailyNotesGlob: "Daily Notes/*/*/*.md", FolderSort: "name_asc"}
 }

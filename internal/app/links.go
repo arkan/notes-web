@@ -23,6 +23,33 @@ type BacklinkContext struct {
 
 var wikiLinkRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
+// preprocessWikiLinksWithResolver resolves all wikilinks in s using the index
+// resolver, avoiding per-link full vault scans (ResolveWikiLink). It is the
+// standalone counterpart to the Renderer method of the same name.
+func preprocessWikiLinksWithResolver(v *Vault, s string, resolver *IndexResolver) string {
+	return wikiLinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		inner := strings.TrimSuffix(strings.TrimPrefix(match, "[["), "]]")
+		link, ok := parseWikiLink(inner)
+		if !ok {
+			return match
+		}
+		res := resolver.Resolve(link.Raw)
+		switch res.Kind {
+		case "unique":
+			u := v.URLForRel(res.RelPath)
+			if link.TargetWithHeading != link.Target {
+				heading := strings.TrimPrefix(link.TargetWithHeading, link.Target+"#")
+				u += "#" + slugify(heading)
+			}
+			return "[" + link.Display + "](" + u + ")"
+		case "ambiguous":
+			return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(link.Target) + ")"
+		default:
+			return "[" + link.Display + "](/_missing?name=" + url.QueryEscape(link.Target) + ")"
+		}
+	})
+}
+
 type parsedWikiLink struct {
 	Raw               string
 	Target            string
@@ -125,4 +152,33 @@ func (v *Vault) BacklinksWithContext(relPath string) []BacklinkContext {
 		return out[i].Source.RelPath < out[j].Source.RelPath
 	})
 	return out
+}
+
+// ForwardLinksFromIndex resolves forward links using the index, avoiding per-link
+// vault scans via ResolveWikiLink. Falls back to parsing the note body for wikilinks.
+func ForwardLinksFromIndex(v *Vault, note NoteMeta, resolver *IndexResolver) []ForwardLink {
+	var links []ForwardLink
+	seen := map[string]bool{}
+	for _, parsed := range wikiLinksIn(note.Body) {
+		if seen[parsed.Raw] {
+			continue
+		}
+		seen[parsed.Raw] = true
+		res := resolver.Resolve(parsed.Raw)
+		link := ForwardLink{Target: parsed.Target, Display: parsed.Display, Kind: res.Kind}
+		if res.Kind == "unique" {
+			link.URL = v.URLForRel(res.RelPath)
+		}
+		links = append(links, link)
+	}
+	return links
+}
+
+// BacklinksFromIndex scans the index for backlinks to relPath, avoiding a full
+// vault scan of MarkdownFiles() + ReadNote per file.
+func BacklinksFromIndex(idx *VaultIndex, relPath string) []BacklinkContext {
+	if idx == nil || idx.Backlinks == nil {
+		return nil
+	}
+	return idx.Backlinks[relPath]
 }

@@ -17,6 +17,8 @@ type NoteMeta struct {
 	Title             string
 	Tags              []string
 	Frontmatter       map[string]any
+	Body              string
+	Text              string // full raw text including frontmatter, for diagnostic line-number matching
 	OutgoingWikiLinks []string
 	OutgoingLinks     []WikiLinkOccurrence
 	ModTime           time.Time
@@ -30,10 +32,20 @@ type WikiLinkOccurrence struct {
 }
 
 type VaultIndex struct {
-	Notes   []NoteMeta
-	ByRel   map[string]NoteMeta
-	Tags    map[string][]NoteMeta
-	Inlinks map[string][]dataviewLink
+	Notes     []NoteMeta
+	ByRel     map[string]NoteMeta
+	Tags      map[string][]NoteMeta
+	Inlinks   map[string][]dataviewLink
+	Backlinks map[string][]BacklinkContext
+}
+
+// ClearIndexCache resets the cached index, forcing the next BuildIndex call
+// to rebuild from scratch. Intended for tests that modify vault files.
+func (v *Vault) ClearIndexCache() {
+	v.indexMu.Lock()
+	defer v.indexMu.Unlock()
+	v.indexCache = nil
+	v.indexCacheKey = ""
 }
 
 func (v *Vault) BuildIndex() (*VaultIndex, error) {
@@ -50,9 +62,10 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 	}
 
 	idx := &VaultIndex{
-		ByRel:   map[string]NoteMeta{},
-		Tags:    map[string][]NoteMeta{},
-		Inlinks: map[string][]dataviewLink{},
+		ByRel:     map[string]NoteMeta{},
+		Tags:      map[string][]NoteMeta{},
+		Inlinks:   map[string][]dataviewLink{},
+		Backlinks: map[string][]BacklinkContext{},
 	}
 	for _, p := range files {
 		note, err := v.ReadNote(p)
@@ -65,6 +78,8 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 			Title:             v.Title(note),
 			Tags:              extractTags(note),
 			Frontmatter:       note.Frontmatter,
+			Body:              note.Body,
+			Text:              note.Text,
 			OutgoingWikiLinks: extractOutgoingWikiLinks(note.Body),
 			OutgoingLinks:     extractWikiLinkOccurrences(note.Body),
 			ModTime:           note.ModTime,
@@ -80,9 +95,53 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 		sort.Slice(idx.Tags[tag], func(i, j int) bool { return idx.Tags[tag][i].RelPath < idx.Tags[tag][j].RelPath })
 	}
 	idx.Inlinks = buildDataviewInlinks(idx)
+	idx.Backlinks = buildBacklinkContexts(idx)
 	v.indexCache = idx
 	v.indexCacheKey = cacheKey
 	return idx, nil
+}
+
+func buildBacklinkContexts(idx *VaultIndex) map[string][]BacklinkContext {
+	keys := map[string][]string{}
+	for _, meta := range idx.Notes {
+		stem := strings.TrimSuffix(filepath.Base(meta.RelPath), filepath.Ext(meta.RelPath))
+		noExt := strings.TrimSuffix(meta.RelPath, filepath.Ext(meta.RelPath))
+		for _, key := range []string{meta.RelPath, noExt, stem} {
+			if key == "" {
+				continue
+			}
+			keys[key] = append(keys[key], meta.RelPath)
+		}
+	}
+
+	out := map[string][]BacklinkContext{}
+	seen := map[string]bool{}
+	for _, source := range idx.Notes {
+		for _, link := range source.OutgoingLinks {
+			for _, key := range []string{link.Target, strings.TrimSuffix(link.Target, filepath.Ext(link.Target))} {
+				for _, destRel := range keys[key] {
+					if destRel == source.RelPath {
+						continue
+					}
+					seenKey := source.RelPath + "\x00" + destRel
+					if seen[seenKey] {
+						continue
+					}
+					seen[seenKey] = true
+					out[destRel] = append(out[destRel], BacklinkContext{Source: Note{RelPath: source.RelPath, ModTime: source.ModTime}, Context: strings.TrimSpace(link.Context), LineNo: link.LineNo})
+				}
+			}
+		}
+	}
+	for rel := range out {
+		sort.SliceStable(out[rel], func(i, j int) bool {
+			if !out[rel][i].Source.ModTime.Equal(out[rel][j].Source.ModTime) {
+				return out[rel][i].Source.ModTime.After(out[rel][j].Source.ModTime)
+			}
+			return out[rel][i].Source.RelPath < out[rel][j].Source.RelPath
+		})
+	}
+	return out
 }
 
 func vaultIndexCacheKey(v *Vault, files []string) (string, error) {

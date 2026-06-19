@@ -80,6 +80,54 @@ func TestNotesMapInvalidConfigRendersDiagnostic(t *testing.T) {
 	}
 }
 
+func TestBuildNotesMapDataFromIndexMatchesOriginal(t *testing.T) {
+	v := makeVault(t)
+	writeMapNote(t, v, "Areas/Amsterdam/Crèches/Appelboom.md", "---\ntype: creche\nname: Appelboom\nstatus: en attente\nlatitude: 52.3905\nlongitude: 4.9451\naddress: Purmerweg 86\nmap_url: https://maps.example/appelboom\ndistance_home_min: 8-11 vélo\n---\n# Appelboom\n")
+	writeMapNote(t, v, "Areas/Amsterdam/Crèches/MissingCoords.md", "---\ntype: creche\nname: Missing\nstatus: en attente\n---\n# Missing\n")
+	writeMapNote(t, v, "Areas/Elsewhere/Creche.md", "---\ntype: creche\nname: Elsewhere\nlatitude: 52.2\nlongitude: 4.2\n---\n# Elsewhere\n")
+
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := notesMapConfig{From: "Areas/Amsterdam/Crèches", Where: map[string]string{"type": "creche"}, Lat: "latitude", Lon: "longitude", Title: "name", Subtitle: "status", Color: "status"}
+
+	// Index-backed should produce the same data as the original.
+	original := buildNotesMapData(v, cfg)
+	fromIdx := buildNotesMapDataFromIndex(idx, cfg)
+	if len(original.Points) != len(fromIdx.Points) {
+		t.Fatalf("original points=%d, index points=%d", len(original.Points), len(fromIdx.Points))
+	}
+	for i := range original.Points {
+		o, f := original.Points[i], fromIdx.Points[i]
+		if o.Title != f.Title || o.Lat != f.Lat || o.Lon != f.Lon || o.URL != f.URL {
+			t.Fatalf("point %d mismatch:\n  original: %+v\n  index:    %+v", i, o, f)
+		}
+	}
+	if original.SkippedMissingCoords != fromIdx.SkippedMissingCoords {
+		t.Fatalf("skippedMissingCoords original=%d, index=%d", original.SkippedMissingCoords, fromIdx.SkippedMissingCoords)
+	}
+}
+
+func TestNotesMapPreprocessWithIndex(t *testing.T) {
+	v := makeVault(t)
+	writeMapNote(t, v, "Areas/Amsterdam/Crèches/Appelboom.md", "---\ntype: creche\nname: Appelboom\nstatus: en attente\nlatitude: 52.3905\nlongitude: 4.9451\n---\n# Appelboom\n")
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "# Crèches\n\n```notes-map\nfrom: \"Areas/Amsterdam/Crèches\"\nwhere:\n  type: creche\nlat: latitude\nlon: longitude\ntitle: name\nsubtitle: status\ncolor: status\n```\n"
+
+	// Render with index-backed preprocessing.
+	renderer := NewRenderer(v).WithIndex(idx)
+	doc := renderer.Render(Note{RelPath: "Areas/Amsterdam/Crèches/Crèches.md", Body: body})
+	for _, want := range []string{`class="notes-map"`, `data-notes-map=`, `Appelboom`, `/Areas/Amsterdam/Cr%C3%A8ches/Appelboom.md`, `52.3905`} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("index-backed map missing %q in:\n%s", want, doc.HTML)
+		}
+	}
+}
+
 func TestNotesMapStaticAssetsExposeRenderer(t *testing.T) {
 	for _, want := range []string{"initNotesMaps", "data-notes-map", "openstreetmap.org", "notes-map-marker"} {
 		if !strings.Contains(js, want) {

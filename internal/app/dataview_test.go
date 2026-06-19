@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -1144,6 +1145,72 @@ func TestDataviewTagCellEmptyValueDoesNotRenderHash(t *testing.T) {
 	html := string(renderDataviewTableBlock(v, idx, q, 1))
 	if strings.Contains(html, `>#<`) || strings.Contains(html, `#,`) {
 		t.Fatalf("empty tag value should not render #:\n%s", html)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dataview TABLE implicit LIMIT cap tests
+// ---------------------------------------------------------------------------
+
+func TestDataviewTableImplicitCapCapsAt10(t *testing.T) {
+	v := makeVault(t)
+	// Create 150 notes to trigger the cap.
+	for i := 0; i < 150; i++ {
+		name := fmt.Sprintf("CapTest/Note%03d.md", i)
+		writeDataviewFixture(t, v, name, "---\ntitle: Note "+fmt.Sprint(i)+"\nnum: "+fmt.Sprint(i)+"\n---\n# Note\n")
+	}
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No explicit LIMIT -> should cap at 10.
+	q, err := parseDataviewQuery(`TABLE file.link FROM "CapTest" SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+	if !strings.Contains(str, "Showing first 10 of 150") {
+		t.Fatalf("expected cap note for 150 rows, got:\n%s", str)
+	}
+	// Rough check: should have many rows but not 150.
+	if strings.Count(str, "<tr>") > 150 {
+		t.Fatalf("expected capped rows (<150 <tr>), got many in:\n%s", str)
+	}
+}
+
+func TestDataviewTableImplicitCapExplicitLimitRespected(t *testing.T) {
+	v := makeVault(t)
+	for i := 0; i < 150; i++ {
+		name := fmt.Sprintf("CapLimitTest/Note%03d.md", i)
+		writeDataviewFixture(t, v, name, "---\ntitle: Note "+fmt.Sprint(i)+"\n---\n# Note\n")
+	}
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Explicit LIMIT 200 should not be capped (renders all 150 matching rows).
+	q, err := parseDataviewQuery(`TABLE file.link FROM "CapLimitTest" LIMIT 200 SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := renderDataviewTableBlock(v, idx, q, 1)
+	str := string(html)
+	if strings.Contains(str, "Showing first 10") {
+		t.Fatalf("explicit LIMIT 200 should not trigger cap message:\n%s", str)
+	}
+
+	// Explicit LIMIT 10 should not be capped.
+	q2, err := parseDataviewQuery(`TABLE file.link FROM "CapLimitTest" LIMIT 10 SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html2 := renderDataviewTableBlock(v, idx, q2, 1)
+	str2 := string(html2)
+	if strings.Contains(str2, "Showing first 10") {
+		t.Fatalf("explicit LIMIT 10 should not trigger cap message:\n%s", str2)
 	}
 }
 

@@ -1000,12 +1000,8 @@ func dataviewError(raw string, err error) template.HTML {
 }
 
 func extractTasksForNote(v *Vault, meta NoteMeta) []IndexedTask {
-	n, err := v.ReadNote(meta.RelPath)
-	if err != nil {
-		return nil
-	}
 	var tasks []IndexedTask
-	for i, line := range strings.Split(n.Body, "\n") {
+	for i, line := range strings.Split(meta.Body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !(strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "- [x]") || strings.HasPrefix(trimmed, "- [X]")) {
 			continue
@@ -1075,6 +1071,38 @@ func ScanDataviewDiagnostics(v *Vault) []dataviewDiagnostic {
 			query := note.Text[m[4]:m[5]]
 			line := 1 + strings.Count(note.Text[:m[0]], "\n")
 			d := dataviewDiagnostic{Path: note.RelPath, Kind: kind, Query: strings.TrimSpace(query), Line: line, Status: "supported"}
+			if kind == "dataviewjs" {
+				d.Status, d.Message = "unsupported", "dataviewjs is intentionally not executed"
+			} else if q, err := parseDataviewQuery(query); err != nil {
+				d.Status, d.Message = "unsupported", err.Error()
+			} else if msg := dataviewUnsupportedReason(q); msg != "" {
+				d.Status, d.Message = "unsupported", msg
+			}
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// ScanDataviewDiagnosticsFromIndex scans for dataview blocks using the vault
+// index, avoiding the full MarkdownFiles() + ReadNote per file cost of
+// ScanDataviewDiagnostics. Returns nil on nil index.
+func ScanDataviewDiagnosticsFromIndex(idx *VaultIndex) []dataviewDiagnostic {
+	if idx == nil {
+		return nil
+	}
+	var out []dataviewDiagnostic
+	blockRe := regexp.MustCompile("(?is)```(dataview|dataviewjs)\\s*\\n(.*?)\\n```")
+	for _, meta := range idx.Notes {
+		text := meta.Text
+		if text == "" {
+			text = meta.Body
+		}
+		for _, m := range blockRe.FindAllStringSubmatchIndex(text, -1) {
+			kind := strings.ToLower(text[m[2]:m[3]])
+			query := text[m[4]:m[5]]
+			line := 1 + strings.Count(text[:m[0]], "\n")
+			d := dataviewDiagnostic{Path: meta.RelPath, Kind: kind, Query: strings.TrimSpace(query), Line: line, Status: "supported"}
 			if kind == "dataviewjs" {
 				d.Status, d.Message = "unsupported", "dataviewjs is intentionally not executed"
 			} else if q, err := parseDataviewQuery(query); err != nil {

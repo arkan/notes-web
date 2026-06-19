@@ -40,7 +40,20 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	}
 }
 
-func TestSidebarShowsDailyNoteFilesNestedByYearAndMonth(t *testing.T) {
+func sidebarVaultHTML(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<section><h3>Vault</h3>`)
+	if start < 0 {
+		t.Fatalf("missing sidebar vault section in:\n%s", body)
+	}
+	end := strings.Index(body[start:], `</section></aside>`)
+	if end < 0 {
+		t.Fatalf("missing sidebar vault section end in:\n%s", body)
+	}
+	return body[start : start+end]
+}
+
+func TestSidebarHomePrunesNestedDailyNotesUntilActive(t *testing.T) {
 	v := makeVault(t)
 	dailyRel := "Daily Notes/2026/2026-05/2026-05-23.md"
 	dailyPath := filepath.Join(v.Root, filepath.FromSlash(dailyRel))
@@ -50,22 +63,48 @@ func TestSidebarShowsDailyNoteFilesNestedByYearAndMonth(t *testing.T) {
 	if err := os.WriteFile(dailyPath, []byte("# Daily note\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	siblingRel := "Daily Notes/2026/2026-05/2026-05-22.md"
+	if err := os.WriteFile(filepath.Join(v.Root, filepath.FromSlash(siblingRel)), []byte("# Sibling daily note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	s := NewServer(v, "", "")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
+	sidebar := sidebarVaultHTML(t, body)
 
-	for _, want := range []string{
-		`data-tree-path="Daily Notes"`,
+	if !strings.Contains(sidebar, `data-tree-path="Daily Notes"`) {
+		t.Fatalf("sidebar should include top-level Daily Notes folder in:\n%s", body)
+	}
+	for _, unwanted := range []string{
 		`data-tree-path="Daily Notes/2026"`,
 		`data-tree-path="Daily Notes/2026/2026-05"`,
 		`href="/Daily%20Notes/2026/2026-05/2026-05-23.md"`,
 	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("sidebar should include nested daily note entry %q in:\n%s", want, body)
+		if strings.Contains(sidebar, unwanted) {
+			t.Fatalf("homepage sidebar should not include nested daily note entry %q in:\n%s", unwanted, body)
 		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Daily%20Notes/2026/2026-05/2026-05-23.md", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	sidebar = sidebarVaultHTML(t, body)
+	for _, want := range []string{
+		`<details class="tree-folder active-branch" data-tree-path="Daily Notes" open>`,
+		`<details class="tree-folder active-branch" data-tree-path="Daily Notes/2026" open>`,
+		`<details class="tree-folder active-branch" data-tree-path="Daily Notes/2026/2026-05" open>`,
+		`<a class="active" aria-current="page" href="/Daily%20Notes/2026/2026-05/2026-05-23.md"><span aria-hidden="true">📄</span> 2026-05-23.md</a>`,
+	} {
+		if !strings.Contains(sidebar, want) {
+			t.Fatalf("active note sidebar should include branch entry %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(sidebar, `href="/Daily%20Notes/2026/2026-05/2026-05-22.md"`) {
+		t.Fatalf("active note sidebar should not include sibling daily files in:\n%s", body)
 	}
 }
 
