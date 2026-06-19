@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -30,7 +31,55 @@ func (r *Renderer) Render(n Note) RenderedDoc {
 	_ = r.md.Convert([]byte(body), &buf)
 	fm := renderFrontmatter(n.Frontmatter)
 	htmlBody := normalizeRenderedHTML(fm + buf.String())
-	return RenderedDoc{Title: r.vault.Title(n), HTML: htmlBody, Toc: tocFromMarkdown(n.Body), Frontmatter: n.Frontmatter, Tags: extractTags(n)}
+	return RenderedDoc{Title: r.vault.Title(n), HTML: htmlBody, Toc: tocFromMarkdown(n.Body), Frontmatter: n.Frontmatter, Tags: extractTags(n), SourceURL: validSourceURL(n.Frontmatter), ReadingListPrompt: readingListPrompt(n.Frontmatter, n.RelPath)}
+}
+
+// validSourceURL extracts and validates the source_url frontmatter field.
+// Only absolute http/https URLs are accepted; empty, non-string, relative,
+// javascript:, and other schemes are rejected.
+func validSourceURL(fm map[string]any) string {
+	raw, ok := fm["source_url"]
+	if !ok {
+		return ""
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+	// Reject URLs with no host (e.g. "http://" or "/relative")
+	if u.Host == "" {
+		return ""
+	}
+	return s
+}
+
+// readingListPrompt returns a copy-prompt for reading-list notes.
+// It is non-empty only when fm["type"] is exactly the string "reading_list".
+// The prompt includes the note's relative path and three action options.
+func readingListPrompt(fm map[string]any, relPath string) string {
+	raw, ok := fm["type"]
+	if !ok {
+		return ""
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	if strings.TrimSpace(s) != "reading_list" {
+		return ""
+	}
+	return "Reading list item: " + relPath + "\nChoose one action and update the note frontmatter accordingly:\n- Mark as read\n- Mark as unread\n- Archive"
 }
 
 func normalizeRenderedHTML(s string) string {

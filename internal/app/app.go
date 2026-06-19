@@ -41,10 +41,12 @@ type WikiResolution struct {
 	Matches               []Note
 }
 type RenderedDoc struct {
-	Title, HTML string
-	Toc         []TOCItem
-	Frontmatter map[string]any
-	Tags        []string
+	Title, HTML       string
+	Toc               []TOCItem
+	Frontmatter       map[string]any
+	Tags              []string
+	SourceURL         string
+	ReadingListPrompt string
 }
 type TOCItem struct {
 	Level    int

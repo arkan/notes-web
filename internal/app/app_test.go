@@ -2302,6 +2302,377 @@ func TestDataviewTableActionInvalidDirValue(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Source URL frontmatter validation and rendering
+// ---------------------------------------------------------------------------
+
+func TestValidSourceURL_ValidHTTPS(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "https://example.com/article"})
+	want := "https://example.com/article"
+	if got != want {
+		t.Fatalf("validSourceURL = %q, want %q", got, want)
+	}
+}
+
+func TestValidSourceURL_ValidHTTP(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "http://example.com"})
+	want := "http://example.com"
+	if got != want {
+		t.Fatalf("validSourceURL = %q, want %q", got, want)
+	}
+}
+
+func TestValidSourceURL_Missing(t *testing.T) {
+	got := validSourceURL(map[string]any{})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for missing key", got)
+	}
+}
+
+func TestValidSourceURL_EmptyString(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": ""})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for empty string", got)
+	}
+}
+
+func TestValidSourceURL_NonString(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": 42})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for non-string", got)
+	}
+}
+
+func TestValidSourceURL_RelativePath(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "/relative/path"})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for relative path", got)
+	}
+}
+
+func TestValidSourceURL_NoHost(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "https://"})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for scheme-only URL", got)
+	}
+}
+
+func TestValidSourceURL_JavascriptScheme(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "javascript:alert(1)"})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for javascript: URL", got)
+	}
+}
+
+func TestValidSourceURL_WhitespaceOnly(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "   "})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for whitespace", got)
+	}
+}
+
+func TestValidSourceURL_FTPRejected(t *testing.T) {
+	got := validSourceURL(map[string]any{"source_url": "ftp://files.example.com"})
+	if got != "" {
+		t.Fatalf("validSourceURL = %q, want empty for ftp scheme", got)
+	}
+}
+
+func TestRenderedDocSourceURL_Populated(t *testing.T) {
+	v := makeVault(t)
+	note := Note{
+		Body: "# Test\n",
+		Frontmatter: map[string]any{
+			"source_url": "https://example.com/article",
+		},
+	}
+	doc := NewRenderer(v).Render(note)
+	want := "https://example.com/article"
+	if doc.SourceURL != want {
+		t.Fatalf("RenderedDoc.SourceURL = %q, want %q", doc.SourceURL, want)
+	}
+}
+
+func TestRenderedDocSourceURL_EmptyWhenMissing(t *testing.T) {
+	v := makeVault(t)
+	note := Note{Body: "# Test\n"}
+	doc := NewRenderer(v).Render(note)
+	if doc.SourceURL != "" {
+		t.Fatalf("RenderedDoc.SourceURL = %q, want empty when missing", doc.SourceURL)
+	}
+}
+
+func TestRenderedDocSourceURL_EmptyWhenInvalid(t *testing.T) {
+	v := makeVault(t)
+	note := Note{
+		Body: "# Test\n",
+		Frontmatter: map[string]any{
+			"source_url": "javascript:alert(1)",
+		},
+	}
+	doc := NewRenderer(v).Render(note)
+	if doc.SourceURL != "" {
+		t.Fatalf("RenderedDoc.SourceURL = %q, want empty for invalid URL", doc.SourceURL)
+	}
+}
+
+func TestNotePageRendersOpenURL_WhenSourceURLPresent(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/ExternalRef.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nsource_url: https://example.com/article\n---\n# External\n\nContent.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/ExternalRef.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if !strings.Contains(bodyHTML, `Open URL`) {
+		t.Fatalf("expected Open URL link in:\n%s", bodyHTML)
+	}
+	if !strings.Contains(bodyHTML, `href="https://example.com/article"`) {
+		t.Fatalf("expected correct href in Open URL link:\n%s", bodyHTML)
+	}
+}
+
+func TestNotePageDoesNotRenderOpenURL_WhenSourceURLMissing(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/NoSource.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# No Source\n\nNo frontmatter.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/NoSource.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if strings.Contains(bodyHTML, `Open URL`) {
+		t.Fatalf("expected NO Open URL link when source_url missing:\n%s", bodyHTML)
+	}
+}
+
+func TestNotePageDoesNotRenderOpenURL_WhenSourceURLInvalid(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/BadSource.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nsource_url: javascript:alert(1)\n---\n# Bad Source\n\nContent.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/BadSource.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if strings.Contains(bodyHTML, `Open URL`) {
+		t.Fatalf("expected NO Open URL link when source_url is javascript:\n%s", bodyHTML)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reading list prompt validation and rendering
+// ---------------------------------------------------------------------------
+
+func TestReadingListPrompt_Valid(t *testing.T) {
+	fm := map[string]any{"type": "reading_list"}
+	got := readingListPrompt(fm, "Areas/Articles/my-article.md")
+	want := "Reading list item: Areas/Articles/my-article.md\nChoose one action and update the note frontmatter accordingly:\n- Mark as read\n- Mark as unread\n- Archive"
+	if got != want {
+		t.Fatalf("readingListPrompt =\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestReadingListPrompt_MissingType(t *testing.T) {
+	got := readingListPrompt(map[string]any{}, "some/path.md")
+	if got != "" {
+		t.Fatalf("readingListPrompt = %q, want empty when type missing", got)
+	}
+}
+
+func TestReadingListPrompt_WrongType(t *testing.T) {
+	got := readingListPrompt(map[string]any{"type": "project"}, "some/path.md")
+	if got != "" {
+		t.Fatalf("readingListPrompt = %q, want empty when type is not reading_list", got)
+	}
+}
+
+func TestReadingListPrompt_NonStringType(t *testing.T) {
+	got := readingListPrompt(map[string]any{"type": 42}, "some/path.md")
+	if got != "" {
+		t.Fatalf("readingListPrompt = %q, want empty when type is not a string", got)
+	}
+}
+
+func TestRenderedDocReadingListPrompt_Populated(t *testing.T) {
+	v := makeVault(t)
+	note := Note{
+		RelPath: "Areas/Articles/article.md",
+		Body:    "# Article\n",
+		Frontmatter: map[string]any{
+			"type": "reading_list",
+		},
+	}
+	doc := NewRenderer(v).Render(note)
+	if doc.ReadingListPrompt == "" {
+		t.Fatal("ReadingListPrompt should be non-empty for reading_list type")
+	}
+	if !strings.Contains(doc.ReadingListPrompt, "Areas/Articles/article.md") {
+		t.Fatalf("ReadingListPrompt should contain the relpath, got:\n%s", doc.ReadingListPrompt)
+	}
+	if !strings.Contains(doc.ReadingListPrompt, "Mark as read") {
+		t.Fatalf("ReadingListPrompt should contain 'Mark as read', got:\n%s", doc.ReadingListPrompt)
+	}
+	if !strings.Contains(doc.ReadingListPrompt, "Mark as unread") {
+		t.Fatalf("ReadingListPrompt should contain 'Mark as unread', got:\n%s", doc.ReadingListPrompt)
+	}
+	if !strings.Contains(doc.ReadingListPrompt, "Archive") {
+		t.Fatalf("ReadingListPrompt should contain 'Archive', got:\n%s", doc.ReadingListPrompt)
+	}
+}
+
+func TestRenderedDocReadingListPrompt_EmptyForOtherType(t *testing.T) {
+	v := makeVault(t)
+	note := Note{
+		RelPath: "Areas/Article.md",
+		Body:    "# Article\n",
+		Frontmatter: map[string]any{
+			"type": "project",
+		},
+	}
+	doc := NewRenderer(v).Render(note)
+	if doc.ReadingListPrompt != "" {
+		t.Fatalf("ReadingListPrompt = %q, want empty for type=project", doc.ReadingListPrompt)
+	}
+}
+
+func TestRenderedDocReadingListPrompt_EmptyForNoType(t *testing.T) {
+	v := makeVault(t)
+	note := Note{RelPath: "Areas/Note.md", Body: "# Note\n"}
+	doc := NewRenderer(v).Render(note)
+	if doc.ReadingListPrompt != "" {
+		t.Fatalf("ReadingListPrompt = %q, want empty when no type frontmatter", doc.ReadingListPrompt)
+	}
+}
+
+func TestNotePageRendersCopyReadingPrompt_WhenTypeReadingList(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/Articles/readme.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: reading_list\n---\n# Readme\n\nContent.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Articles/readme.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if !strings.Contains(bodyHTML, `Copy reading prompt`) {
+		t.Fatalf("expected 'Copy reading prompt' button in:\n%s", bodyHTML)
+	}
+	// Verify the data-copy attribute contains the relpath and actions
+	if !strings.Contains(bodyHTML, `Areas/Articles/readme.md`) {
+		t.Fatalf("expected relpath in data-copy attribute:\n%s", bodyHTML)
+	}
+	if !strings.Contains(bodyHTML, `Mark as read`) {
+		t.Fatalf("expected 'Mark as read' in data-copy:\n%s", bodyHTML)
+	}
+}
+
+func TestNotePageDoesNotRenderCopyReadingPrompt_WhenTypeIsNotReadingList(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/Articles/other.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: project\n---\n# Other\n\nContent.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Articles/other.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if strings.Contains(bodyHTML, `Copy reading prompt`) {
+		t.Fatalf("expected NO 'Copy reading prompt' button when type=project:\n%s", bodyHTML)
+	}
+}
+
+func TestNotePageDoesNotRenderCopyReadingPrompt_WhenNoType(t *testing.T) {
+	v := makeVault(t)
+	rel := "Areas/Articles/notype.md"
+	p := filepath.Join(v.Root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# No Type\n\nNo frontmatter.\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Articles/notype.md", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	bodyHTML := w.Body.String()
+	if strings.Contains(bodyHTML, `Copy reading prompt`) {
+		t.Fatalf("expected NO 'Copy reading prompt' button when no type frontmatter:\n%s", bodyHTML)
+	}
+}
+
 func TestDataviewTableActionRenderAllTables(t *testing.T) {
 	v := makeDataviewVault(t)
 	// Use existing dashboards: has one TABLE in Dashboards/Dataview.md

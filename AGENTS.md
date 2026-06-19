@@ -48,6 +48,7 @@ Do not use plain `go test ./...` after `npm ci`; `node_modules` may contain Go p
 - Do not commit, amend, push, or create PRs unless explicitly requested.
 - Do not modify `/home/arkan/hermes` unless explicitly requested and freshly confirmed.
 - Use `testdata/e2e-vault`, never the real Hermes vault, for tests.
+- Every feature must include Playwright E2E coverage against `testdata/e2e-vault`.
 - For non-trivial work, keep `tasks/todo.md` current. Detailed plans may live under ignored `docs/plans/YYYY-MM-DD-<feature>.md` as local working artifacts only; durable decisions belong in versioned docs.
 
 ## Load on demand
