@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -631,6 +632,11 @@ func evalFunc(r dataviewRow, name string, args []string) any {
 			txt := displayPlain(evalValue(r, args[0]))
 			return dataviewLink{URL: "#", Text: txt}
 		}
+		if len(args) == 2 {
+			target := displayPlain(evalValue(r, args[0]))
+			text := displayPlain(evalValue(r, args[1]))
+			return dataviewLink{URL: dataviewLinkURL(target), Text: text}
+		}
 	case "dur", "duration":
 		if len(args) == 1 {
 			return parseDataviewDuration(args[0])
@@ -832,6 +838,21 @@ func taskField(t IndexedTask, expr string) (any, bool) {
 
 func noteFileName(n NoteMeta) string {
 	return strings.TrimSuffix(filepath.Base(n.RelPath), filepath.Ext(n.RelPath))
+}
+
+func dataviewLinkURL(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "#"
+	}
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "#") {
+		return target
+	}
+	parts := strings.Split(filepath.ToSlash(target), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return "/" + strings.Join(parts, "/")
 }
 
 type dataviewLink struct{ URL, Text string }

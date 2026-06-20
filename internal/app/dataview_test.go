@@ -81,6 +81,22 @@ func TestDataviewMultilineTableColumns(t *testing.T) {
 	}
 }
 
+func TestDataviewLinkFunctionUsesCustomText(t *testing.T) {
+	v := makeDataviewVault(t)
+	html := string(RenderDataviewBlock(v, `TABLE link(file.path, title) AS "Project"
+FROM "Projects"
+WHERE status = "active"
+SORT file.name`))
+	for _, want := range []string{`href="/Projects/Alpha.md">Alpha Project</a>`, `href="/Projects/Gamma.md">Gamma Project</a>`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("custom link table missing %q in:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, `href="#">Alpha Project</a>`) || strings.Contains(html, `>Alpha</a>`) {
+		t.Fatalf("custom link should use file path URL and title text:\n%s", html)
+	}
+}
+
 func TestDataviewWhereLimitTagSourceFunctionsAndYamlLists(t *testing.T) {
 	v := makeDataviewVault(t)
 	query := `TABLE file.link as "Note", default(area, "none") as "Area", length(aliases) as "Aliases", choice(score >= 9, "high", "normal") as "Tier"

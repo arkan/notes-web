@@ -23,6 +23,15 @@ FROM "Projects"
 SORT file.name
 ```
 
+Use `link(file.path, title)` when you want a clickable note link whose visible
+text comes from frontmatter instead of the file name:
+
+```dataview
+TABLE link(file.path, title) AS "Name", status
+FROM "Projects"
+SORT file.name
+```
+
 ### FILTER clause
 
 Add interactive column dropdown filters to any `TABLE` query:
