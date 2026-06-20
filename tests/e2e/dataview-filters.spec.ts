@@ -32,6 +32,35 @@ async function waitForAjax(page: Page): Promise<void> {
 }
 
 test.describe("Dataview table filters", () => {
+  test("filtered tables with more than ten rows are not implicitly capped", async ({
+    page,
+  }) => {
+    await page.goto("/DataviewCap/Filter%20Cap.md");
+    await page.waitForSelector(
+      '.dataview-table-wrap[data-dataview-action="renderDataviewTable"][data-dataview-table="1"]',
+    );
+
+    const rows = dataRows(page);
+    await expect(page.locator(".dataview-cap-note")).toHaveCount(0);
+    await expect(rows).toHaveCount(12);
+    await expect(rows.nth(0)).toContainText("Active01");
+    await expect(rows.nth(11)).toContainText("Active12");
+
+    const statusSelect = tableWrap(page).locator(
+      'select[data-dataview-filter="status"]',
+    );
+    await statusSelect.selectOption("done");
+    await waitForAjax(page);
+    await expect(page.locator(".dataview-cap-note")).toHaveCount(0);
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toContainText("Done01");
+
+    await statusSelect.selectOption("active");
+    await waitForAjax(page);
+    await expect(page.locator(".dataview-cap-note")).toHaveCount(0);
+    await expect(rows).toHaveCount(12);
+  });
+
   test("single status filter defaults to active and is clearable", async ({
     page,
   }) => {

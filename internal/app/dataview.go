@@ -297,6 +297,7 @@ func evalDataviewRows(v *Vault, idx *VaultIndex, q dataviewQuery) ([]dataviewRow
 func evalDataviewRowsFull(v *Vault, idx *VaultIndex, q dataviewQuery, skipLimit, skipSort bool) ([]dataviewRow, error) {
 	var rows []dataviewRow
 	heavy := q.requiredHeavyFields()
+	fastWhere, hasFastWhere := compileFastMetaWhere(q.Where)
 	if q.Kind == "TASK" {
 		for _, meta := range idx.Notes {
 			if sourceMatches(meta, q.From) {
@@ -311,8 +312,11 @@ func evalDataviewRowsFull(v *Vault, idx *VaultIndex, q dataviewQuery, skipLimit,
 	} else {
 		for _, meta := range idx.Notes {
 			if sourceMatches(meta, q.From) {
+				if hasFastWhere && !fastWhere(meta) {
+					continue
+				}
 				r := dataviewRow{Note: &meta, Data: dataviewBaseData(v, idx, meta, heavy)}
-				if whereMatches(r, q.Where) {
+				if hasFastWhere || whereMatches(r, q.Where) {
 					rows = append(rows, r)
 				}
 			}
@@ -440,8 +444,15 @@ func groupRows(rows []dataviewRow, expr string) []dataviewRow {
 }
 
 func sortDataviewRows(rows []dataviewRow, sorts []dataviewSort) {
+	rows = sortDataviewRowsForRenderLimit(rows, sorts, 0)
+}
+
+func sortDataviewRowsForRenderLimit(rows []dataviewRow, sorts []dataviewSort, renderLimit int) []dataviewRow {
 	if len(sorts) == 0 {
-		return
+		return rows
+	}
+	if renderLimit > 0 && len(rows) > renderLimit {
+		return topDataviewRows(rows, sorts, renderLimit)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		for _, s := range sorts {
@@ -455,6 +466,57 @@ func sortDataviewRows(rows []dataviewRow, sorts []dataviewSort) {
 		}
 		return false
 	})
+	return rows
+}
+
+type sortableDataviewRow struct {
+	row  dataviewRow
+	keys []any
+}
+
+func topDataviewRows(rows []dataviewRow, sorts []dataviewSort, limit int) []dataviewRow {
+	top := make([]sortableDataviewRow, 0, limit)
+	for _, row := range rows {
+		entry := sortableDataviewRow{row: row, keys: dataviewSortKeys(row, sorts)}
+		pos := sort.Search(len(top), func(i int) bool {
+			return dataviewSortEntryLess(entry, top[i], sorts)
+		})
+		if pos >= limit {
+			continue
+		}
+		top = append(top, sortableDataviewRow{})
+		copy(top[pos+1:], top[pos:])
+		top[pos] = entry
+		if len(top) > limit {
+			top = top[:limit]
+		}
+	}
+	out := make([]dataviewRow, len(top))
+	for i, entry := range top {
+		out[i] = entry.row
+	}
+	return out
+}
+
+func dataviewSortKeys(row dataviewRow, sorts []dataviewSort) []any {
+	keys := make([]any, len(sorts))
+	for i, s := range sorts {
+		keys[i] = evalValue(row, s.Expr)
+	}
+	return keys
+}
+
+func dataviewSortEntryLess(left, right sortableDataviewRow, sorts []dataviewSort) bool {
+	for i, s := range sorts {
+		c := compareValues(left.keys[i], right.keys[i])
+		if c != 0 {
+			if s.Desc {
+				return c > 0
+			}
+			return c < 0
+		}
+	}
+	return false
 }
 
 func whereMatches(r dataviewRow, where string) bool {
@@ -463,6 +525,66 @@ func whereMatches(r dataviewRow, where string) bool {
 		return true
 	}
 	return evalBoolExpr(r, where)
+}
+
+func compileFastMetaWhere(where string) (func(NoteMeta) bool, bool) {
+	where = strings.TrimSpace(where)
+	if where == "" {
+		return nil, false
+	}
+	parts := splitBool(where, " AND ")
+	if len(parts) == 0 {
+		parts = []string{where}
+	}
+	predicates := make([]func(NoteMeta) bool, 0, len(parts))
+	for _, part := range parts {
+		pred, ok := compileFastMetaPredicate(part)
+		if !ok {
+			return nil, false
+		}
+		predicates = append(predicates, pred)
+	}
+	return func(meta NoteMeta) bool {
+		for _, pred := range predicates {
+			if !pred(meta) {
+				return false
+			}
+		}
+		return true
+	}, true
+}
+
+func compileFastMetaPredicate(expr string) (func(NoteMeta) bool, bool) {
+	expr = strings.TrimSpace(expr)
+	negated := strings.HasPrefix(expr, "!")
+	if negated {
+		expr = strings.TrimSpace(strings.TrimPrefix(expr, "!"))
+	}
+	if !strings.HasPrefix(strings.ToLower(expr), "contains(") || !strings.HasSuffix(expr, ")") {
+		return nil, false
+	}
+	args := splitTopLevel(expr[len("contains("):len(expr)-1], ',')
+	if len(args) != 2 {
+		return nil, false
+	}
+	field := strings.TrimSpace(args[0])
+	needle := strings.Trim(strings.TrimSpace(args[1]), "\"")
+	var value func(NoteMeta) string
+	switch field {
+	case "file.name":
+		value = func(meta NoteMeta) string { return noteFileName(meta) }
+	case "file.path":
+		value = func(meta NoteMeta) string { return meta.RelPath }
+	default:
+		return nil, false
+	}
+	return func(meta NoteMeta) bool {
+		matched := strings.Contains(value(meta), needle)
+		if negated {
+			return !matched
+		}
+		return matched
+	}, true
 }
 
 func evalBoolExpr(r dataviewRow, expr string) bool {
@@ -1248,6 +1370,63 @@ func parseDataviewDuration(raw string) dataviewDuration {
 }
 
 func compareValues(a, b any) int {
+	if ta, ok := a.(time.Time); ok {
+		tb := parseDateAny(b)
+		if ta.Before(tb) {
+			return -1
+		}
+		if ta.After(tb) {
+			return 1
+		}
+		return 0
+	}
+	if tb, ok := b.(time.Time); ok {
+		ta := parseDateAny(a)
+		if ta.Before(tb) {
+			return -1
+		}
+		if ta.After(tb) {
+			return 1
+		}
+		return 0
+	}
+	if sa, ok := a.(string); ok {
+		if sb, ok := b.(string); ok {
+			if looksDateString(sa) || looksDateString(sb) {
+				ta, tb := parseDateAny(sa), parseDateAny(sb)
+				if !ta.IsZero() || !tb.IsZero() {
+					if ta.Before(tb) {
+						return -1
+					}
+					if ta.After(tb) {
+						return 1
+					}
+					return 0
+				}
+			}
+			if looksNumericString(sa) && looksNumericString(sb) {
+				if fa, err := strconv.ParseFloat(sa, 64); err == nil {
+					if fb, err := strconv.ParseFloat(sb, 64); err == nil {
+						if fa < fb {
+							return -1
+						}
+						if fa > fb {
+							return 1
+						}
+						return 0
+					}
+				}
+			}
+			sa, sb = strings.ToLower(sa), strings.ToLower(sb)
+			if sa < sb {
+				return -1
+			}
+			if sa > sb {
+				return 1
+			}
+			return 0
+		}
+	}
 	ta, tb := parseDateAny(a), parseDateAny(b)
 	if !ta.IsZero() || !tb.IsZero() {
 		if ta.Before(tb) {
@@ -1278,6 +1457,32 @@ func compareValues(a, b any) int {
 	}
 	return 0
 }
+
+func looksDateString(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) >= 10 && s[4] == '-' && s[7] == '-'
+}
+
+func looksNumericString(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if i == 0 && (r == '-' || r == '+') {
+			continue
+		}
+		if r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func parseDateAny(v any) time.Time {
 	switch x := v.(type) {
 	case time.Time:

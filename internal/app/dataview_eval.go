@@ -25,24 +25,46 @@ type dataviewFilterState struct {
 //
 //	FROM/WHERE → FLATTEN → GROUP BY → SORT (query or user) → compute options → FILTER/q → LIMIT
 func evalDataviewTableRows(v *Vault, idx *VaultIndex, q dataviewQuery, params dataviewTableParams) ([]dataviewRow, []dataviewFilterState, error) {
+	rows, states, _, err := evalDataviewTableRowsInternal(v, idx, q, params, 0)
+	return rows, states, err
+}
+
+func evalDataviewTableRowsForRender(v *Vault, idx *VaultIndex, q dataviewQuery, params dataviewTableParams) ([]dataviewRow, []dataviewFilterState, dataviewRenderCap, error) {
+	renderLimit := 0
+	if shouldApplyDataviewImplicitCap(q, params) {
+		renderLimit = dataviewImplicitRenderLimit
+	}
+	rows, states, total, err := evalDataviewTableRowsInternal(v, idx, q, params, renderLimit)
+	if err != nil {
+		return nil, nil, dataviewRenderCap{}, err
+	}
+	cap := dataviewRenderCap{}
+	if renderLimit > 0 && total > renderLimit {
+		cap = dataviewRenderCap{Applied: true, Limit: renderLimit, Total: total}
+	}
+	return rows, states, cap, nil
+}
+
+func evalDataviewTableRowsInternal(v *Vault, idx *VaultIndex, q dataviewQuery, params dataviewTableParams, renderLimit int) ([]dataviewRow, []dataviewFilterState, int, error) {
 	if q.Kind != "TABLE" {
-		return nil, nil, fmt.Errorf("FILTER is only supported for TABLE queries")
+		return nil, nil, 0, fmt.Errorf("FILTER is only supported for TABLE queries")
 	}
 
 	// 1-4: FROM/WHERE → FLATTEN → GROUP BY (skip SORT and LIMIT — applied below)
 	rows, err := evalDataviewRowsFull(v, idx, q, true, params.Sort != "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
+	totalBeforeRenderLimit := len(rows)
 
 	// 5. Apply user sort if provided (replaces query SORT entirely).
 	if params.Sort != "" {
 		dir := strings.ToLower(params.Dir)
 		desc := dir == "desc"
-		sortDataviewRows(rows, []dataviewSort{{Expr: params.Sort, Desc: desc}})
+		rows = sortDataviewRowsForRenderLimit(rows, []dataviewSort{{Expr: params.Sort, Desc: desc}}, renderLimit)
 	} else if len(q.Sorts) > 0 {
 		// Apply query sort when no user sort.
-		sortDataviewRows(rows, q.Sorts)
+		rows = sortDataviewRowsForRenderLimit(rows, q.Sorts, renderLimit)
 	}
 
 	// 6. Compute filter options from column values.
@@ -105,9 +127,11 @@ func evalDataviewTableRows(v *Vault, idx *VaultIndex, q dataviewQuery, params da
 	// 8. Apply LIMIT (after filter/q, per clarified plan behavior).
 	if q.Limit >= 0 && len(rows) > q.Limit {
 		rows = rows[:q.Limit]
+	} else if renderLimit > 0 && len(rows) > renderLimit {
+		rows = rows[:renderLimit]
 	}
 
-	return rows, states, nil
+	return rows, states, totalBeforeRenderLimit, nil
 }
 
 // tableDisplayColumns returns the columns to display for a TABLE query.

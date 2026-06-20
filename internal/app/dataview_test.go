@@ -288,10 +288,19 @@ func TestVaultIndexCacheReusesUnchangedIndexAndInvalidatesOnMarkdownChange(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if idx3 == idx2 {
-		t.Fatalf("changed vault should invalidate cached index")
+	if idx3 != idx2 {
+		t.Fatalf("fresh cache should be reused until explicit invalidation or freshness expiry")
 	}
-	if _, ok := idx3.ByRel["Projects/New.md"]; !ok {
+
+	v.ClearIndexCache()
+	idx4, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx4 == idx2 {
+		t.Fatalf("cleared cache should rebuild index")
+	}
+	if _, ok := idx4.ByRel["Projects/New.md"]; !ok {
 		t.Fatalf("invalidated index should include new note")
 	}
 }
@@ -1190,9 +1199,39 @@ func TestDataviewTableImplicitCapCapsAt10(t *testing.T) {
 	if !strings.Contains(str, "Showing first 10 of 150") {
 		t.Fatalf("expected cap note for 150 rows, got:\n%s", str)
 	}
-	// Rough check: should have many rows but not 150.
-	if strings.Count(str, "<tr>") > 150 {
-		t.Fatalf("expected capped rows (<150 <tr>), got many in:\n%s", str)
+	if got := strings.Count(str, `/CapTest/Note`); got != 10 {
+		t.Fatalf("expected 10 rendered capped rows, got %d in:\n%s", got, str)
+	}
+}
+
+func TestDataviewTableImplicitCapSkipsInteractiveFilters(t *testing.T) {
+	v := makeVault(t)
+	for i := 0; i < 28; i++ {
+		name := fmt.Sprintf("FilterCap/Active%02d.md", i)
+		writeDataviewFixture(t, v, name, "---\ntitle: Active "+fmt.Sprint(i)+"\nstatus: active\n---\n# Active\n")
+	}
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("FilterCap/Done%02d.md", i)
+		writeDataviewFixture(t, v, name, "---\ntitle: Done "+fmt.Sprint(i)+"\nstatus: done\n---\n# Done\n")
+	}
+	idx, err := v.BuildIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := parseDataviewQuery(`TABLE status, file.link FROM "FilterCap" FILTER status DEFAULT "active" CLEARABLE SORT file.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(renderDataviewTableBlock(v, idx, q, 1))
+	if strings.Contains(html, "dataview-cap-note") {
+		t.Fatalf("interactive FILTER table should not be implicitly capped:\n%s", html)
+	}
+	if got := strings.Count(html, `/FilterCap/Active`); got != 28 {
+		t.Fatalf("expected all 28 active rows, got %d in:\n%s", got, html)
+	}
+	if strings.Contains(html, `/FilterCap/Done`) {
+		t.Fatalf("default active filter should exclude done rows:\n%s", html)
 	}
 }
 

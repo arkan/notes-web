@@ -39,6 +39,8 @@ type VaultIndex struct {
 	Backlinks map[string][]BacklinkContext
 }
 
+const indexFreshnessWindow = 5 * time.Minute
+
 // ClearIndexCache resets the cached index, forcing the next BuildIndex call
 // to rebuild from scratch. Intended for tests that modify vault files.
 func (v *Vault) ClearIndexCache() {
@@ -46,11 +48,19 @@ func (v *Vault) ClearIndexCache() {
 	defer v.indexMu.Unlock()
 	v.indexCache = nil
 	v.indexCacheKey = ""
+	v.indexBuiltAt = time.Time{}
 }
 
 func (v *Vault) BuildIndex() (*VaultIndex, error) {
 	v.indexMu.Lock()
 	defer v.indexMu.Unlock()
+
+	// Fast path for browsing: this server has no write endpoints, so external
+	// vault edits may be visible after the freshness window. After the window,
+	// fall back to the full cache-key validation below.
+	if v.indexCache != nil && time.Since(v.indexBuiltAt) < indexFreshnessWindow {
+		return v.indexCache, nil
+	}
 
 	files := v.MarkdownFiles()
 	cacheKey, err := vaultIndexCacheKey(v, files)
@@ -98,6 +108,7 @@ func (v *Vault) BuildIndex() (*VaultIndex, error) {
 	idx.Backlinks = buildBacklinkContexts(idx)
 	v.indexCache = idx
 	v.indexCacheKey = cacheKey
+	v.indexBuiltAt = time.Now()
 	return idx, nil
 }
 

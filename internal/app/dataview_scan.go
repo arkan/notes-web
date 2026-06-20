@@ -8,7 +8,15 @@ import (
 	"strings"
 )
 
+const dataviewImplicitRenderLimit = 10
+
 var dataviewFenceRe = regexp.MustCompile("(?s)```dataview\\s*\\n(.*?)\\n```")
+
+type dataviewRenderCap struct {
+	Applied bool
+	Limit   int
+	Total   int
+}
 
 // dataviewBlockSpan describes one fenced dataview block in the source text.
 type dataviewBlockSpan struct {
@@ -138,16 +146,9 @@ func renderDataviewTableBlockWithParams(v *Vault, idx *VaultIndex, q dataviewQue
 		return dataviewError(q.String(), err)
 	}
 
-	rows, states, err := evalDataviewTableRows(v, idx, q, params)
+	rows, states, cap, err := evalDataviewTableRowsForRender(v, idx, q, params)
 	if err != nil {
 		return dataviewError(q.String(), err)
-	}
-
-	capped := false
-	totalRows := len(rows)
-	if q.Limit < 0 && totalRows > 10 {
-		rows = rows[:10]
-		capped = true
 	}
 
 	// Determine sort metadata for the rendered output.
@@ -163,13 +164,26 @@ func renderDataviewTableBlockWithParams(v *Vault, idx *VaultIndex, q dataviewQue
 	}
 
 	html := renderDataviewTableHTML(q, rows, states, tableIndex, sortField, sortDir)
-	if capped {
-		note := `<div class="dataview-cap-note" role="note">Showing first 10 of ` +
-			fmt.Sprintf("%d", totalRows) +
-			` rows. Add LIMIT to the Dataview query to control this view.</div>`
-		return template.HTML(note + string(html))
+	if cap.Applied {
+		return template.HTML(renderDataviewCapNote(cap) + string(html))
 	}
 	return html
+}
+
+func shouldApplyDataviewImplicitCap(q dataviewQuery, params dataviewTableParams) bool {
+	// Interactive FILTER tables must expose the full filtered result set. Otherwise
+	// the initial render and filter AJAX actions appear to operate on different
+	// result universes. Static no-LIMIT tables still get a small render cap for
+	// page-load speed; authors can add LIMIT when they want a larger static view.
+	return q.Limit < 0 && len(q.Filters) == 0 && params.Q == ""
+}
+
+func renderDataviewCapNote(cap dataviewRenderCap) string {
+	return `<div class="dataview-cap-note" role="note">Showing first ` +
+		fmt.Sprintf("%d", cap.Limit) +
+		` of ` +
+		fmt.Sprintf("%d", cap.Total) +
+		` rows. Add LIMIT to the Dataview query to control this view.</div>`
 }
 
 // queryString returns the query as a string for error display.

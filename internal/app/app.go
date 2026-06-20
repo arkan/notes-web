@@ -29,6 +29,7 @@ type (
 		indexMu       sync.Mutex
 		indexCache    *VaultIndex
 		indexCacheKey string
+		indexBuiltAt  time.Time
 	}
 	Note struct {
 		Path, RelPath, Text, Body string

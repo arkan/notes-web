@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"html"
+	"html/template"
 	"net/http"
 	"strconv"
 )
@@ -118,7 +119,7 @@ func (s *Server) handleDataviewTableAction(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Run the pipeline.
-	rows, states, err := evalDataviewTableRows(s.vault, idx, q, params)
+	rows, states, cap, err := evalDataviewTableRowsForRender(s.vault, idx, q, params)
 	if err != nil {
 		writeDataviewError(w, fmt.Sprintf("dataview-error: %v", err), http.StatusBadRequest)
 		return true
@@ -129,7 +130,6 @@ func (s *Server) handleDataviewTableAction(w http.ResponseWriter, r *http.Reques
 		writeDataviewError(w, html.EscapeString(err.Error()), http.StatusBadRequest)
 		return true
 	}
-
 	// Determine sort metadata.
 	sortField := params.Sort
 	sortDir := params.Dir
@@ -144,6 +144,9 @@ func (s *Server) handleDataviewTableAction(w http.ResponseWriter, r *http.Reques
 
 	// Render the partial HTML.
 	out := renderDataviewTableHTML(q, rows, states, tableIdx, sortField, sortDir)
+	if cap.Applied {
+		out = template.HTML(renderDataviewCapNote(cap) + string(out))
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

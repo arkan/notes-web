@@ -1969,6 +1969,76 @@ func TestDataviewTableActionSuccess(t *testing.T) {
 	}
 }
 
+func TestDataviewTableActionImplicitCapMatchesStaticRender(t *testing.T) {
+	v := makeDataviewVault(t)
+	for i := 0; i < 20; i++ {
+		writeDataviewFixture(t, v, fmt.Sprintf("CapAction/Note%02d.md", i), "---\ntitle: Note "+fmt.Sprint(i)+"\n---\n# Note\n")
+	}
+	writeDataviewFixture(t, v, "Dashboards/StaticCap.md",
+		"# StaticCap\n\n"+
+			"```dataview\n"+
+			`TABLE file.link FROM "CapAction" SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "CapAction"))
+		os.Remove(filepath.Join(v.Root, "Dashboards", "StaticCap.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/StaticCap.md?action=renderDataviewTable&table=1", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Showing first 10 of 20") {
+		t.Fatalf("static AJAX render should include the same cap note as full render:\n%s", body)
+	}
+	if got := strings.Count(body, `/CapAction/Note`); got != 10 {
+		t.Fatalf("expected 10 capped rows, got %d in:\n%s", got, body)
+	}
+}
+
+func TestDataviewTableActionFilterTablesAreNotImplicitlyCapped(t *testing.T) {
+	v := makeDataviewVault(t)
+	for i := 0; i < 12; i++ {
+		writeDataviewFixture(t, v, fmt.Sprintf("CapActionFilter/Active%02d.md", i), "---\ntitle: Active "+fmt.Sprint(i)+"\nstatus: active\n---\n# Active\n")
+	}
+	for i := 0; i < 2; i++ {
+		writeDataviewFixture(t, v, fmt.Sprintf("CapActionFilter/Done%02d.md", i), "---\ntitle: Done "+fmt.Sprint(i)+"\nstatus: done\n---\n# Done\n")
+	}
+	writeDataviewFixture(t, v, "Dashboards/FilterCapAction.md",
+		"# FilterCapAction\n\n"+
+			"```dataview\n"+
+			`TABLE status, file.link FROM "CapActionFilter" FILTER status DEFAULT "active" CLEARABLE SORT file.name`+"\n"+
+			"```\n")
+	defer func() {
+		os.RemoveAll(filepath.Join(v.Root, "CapActionFilter"))
+		os.Remove(filepath.Join(v.Root, "Dashboards", "FilterCapAction.md"))
+	}()
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Dashboards/FilterCapAction.md?action=renderDataviewTable&table=1&filter.status=active", nil)
+	s.ServeHTTP(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "dataview-cap-note") {
+		t.Fatalf("interactive FILTER AJAX render should not be implicitly capped:\n%s", body)
+	}
+	if got := strings.Count(body, `/CapActionFilter/Active`); got != 12 {
+		t.Fatalf("expected all 12 active rows, got %d in:\n%s", got, body)
+	}
+	if strings.Contains(body, `/CapActionFilter/Done`) {
+		t.Fatalf("active filter should exclude done rows:\n%s", body)
+	}
+}
+
 func TestDataviewTableActionMethodNotAllowed(t *testing.T) {
 	v := makeDataviewVault(t)
 	s := NewServer(v, "", "")
