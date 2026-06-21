@@ -11,7 +11,7 @@ Project-wide hard rules for Notes Web. Keep this file short; put path-specific r
 5. Keep Go boring: standard-library HTTP, Go templates, explicit small functions, and clear subsystem files.
 6. Keep server renderers as the source of truth for HTML; JavaScript enhances and requests fragments.
 7. Escape all app-generated HTML text, attributes, URLs, labels, errors, and query-derived values.
-8. Reject path traversal outside the vault and keep hidden paths hidden across pages, files, actions, and diagnostics.
+8. Reject path traversal outside the vault. Dot-prefixed paths stay blocked for direct read/write and excluded from enumeration. Configured hidden paths are non-enumerated but direct-URL addressable. `_trash` subtree is non-enumerated and direct CRUD blocked. `_template.md` is direct-read/edit addressable, and non-enumerated when `editing.hide_templates` is true.
 9. Run internal AJAX actions only after auth and normal path resolution / hidden-path checks.
 10. Keep raw HTML enabled for trusted vault Markdown, but never treat app-generated output as trusted.
 11. Do not create endpoints that bypass the normal vault path model without an explicit plan and review.

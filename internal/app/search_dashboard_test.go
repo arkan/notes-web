@@ -278,7 +278,10 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 		`<a href="/Areas">Areas</a>`,
 		`<a href="/Areas/Daily%20Briefings" aria-current="page">Daily Briefings</a>`,
 		`<article class="folder-view reading-surface">`,
-		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions"><button class="copy-link btn ghost" data-copy-path>Copy path</button></div></header>`,
+		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions" data-note-actions>`,
+		`data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>`,
+		`<div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Folder actions" hidden>`,
+		`<button class="note-actions-item copy-link" role="menuitem" type="button" data-copy-path>Copy path</button>`,
 		`<ul class="list folder-list">`,
 		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md">📄 2026-05-22-briefing.md</a>`,
 	} {

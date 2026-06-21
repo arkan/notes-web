@@ -252,7 +252,50 @@ homepage:
       limit: 10
     diagnostics:
       visible: true
+editing:
+  enabled: false
+  trash_path: _trash
+  template_name: _template.md
+  hide_templates: true
+  slug: kebab_lowercase
 ```
+
+### `editing`
+
+Edit mode is disabled by default. Enable it only for vaults where the browser should be allowed to write files:
+
+```yaml
+editing:
+  enabled: true
+  trash_path: _trash
+  template_name: _template.md
+  hide_templates: true
+  slug: kebab_lowercase
+```
+
+When enabled, Markdown `.md` note pages gain inline source editing, manual preview, explicit save, create, rename, Move to Trash, and command-palette actions. Save uses conflict checks so an on-disk change blocks overwrite and keeps the browser draft.
+
+Create and rename rules:
+
+- new note titles slugify to lowercase kebab-case `.md` filenames;
+- folder names are preserved;
+- only empty folders can be renamed or moved to Trash;
+- `_template.md` is resolved from the current folder upward and may use `{{title}}`, `{{slug}}`, `{{path}}`, `{{folder}}`, and local `{{date}}` (`YYYY-MM-DD`);
+- `_template.md` pages can be edited by direct URL, but are not rename/trash targets in the UI.
+
+Trash rules:
+
+- Move to Trash stores dated snapshots under `editing.trash_path`;
+- `_trash` is excluded from normal browse/search/palette surfaces;
+- restore is available from the dedicated Trash view;
+- permanent purge is not implemented.
+
+Security model:
+
+- all write requests require the app CSRF token;
+- dot-prefixed paths stay blocked;
+- configured `hidden:` paths are non-enumerated but accessible by direct URL, and show a Hidden badge;
+- if exposing the server beyond a trusted local machine, use Basic Auth or an equivalent network boundary.
 
 ### `sidebar.favorites.items`
 

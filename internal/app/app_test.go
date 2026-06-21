@@ -55,7 +55,7 @@ func TestSafePathRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
+func TestConfiguredHiddenPathsAreNonEnumeratedButDirectURLAddressable(t *testing.T) {
 	v := makeVault(t)
 	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("sidebar:\n  favorites:\n    items:\n      - path: Areas/Secret\n        label: Secret\n      - path: Areas/Hidden.md\n        label: Hidden\nhidden:\n  - Areas/Secret\n  - Areas/Hidden.md\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -71,6 +71,7 @@ func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Configured hidden paths must be excluded from enumeration (tree).
 	if treeContainsRel(v.Tree(3), "Areas/Secret") || treeContainsRel(v.Tree(3), "Areas/Hidden.md") {
 		t.Fatalf("hidden path leaked into tree: %+v", v.Tree(3))
 	}
@@ -84,11 +85,15 @@ func TestConfiguredHiddenPathsAreNotNavigableOrServed(t *testing.T) {
 		t.Fatalf("hidden path leaked into folder listing:\n%s", body)
 	}
 
+	// Configured hidden paths MUST be accessible by direct URL (new semantics).
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest("GET", "/Areas/Secret/Note.md", nil)
 	s.ServeHTTP(w, r)
-	if w.Code != 404 {
-		t.Fatalf("hidden note direct URL status=%d want 404, body=%s", w.Code, w.Body.String())
+	if w.Code != 200 {
+		t.Fatalf("configured hidden note direct URL status=%d want 200, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "# Secret") && !strings.Contains(w.Body.String(), "Secret") {
+		t.Fatalf("configured hidden note content should be served, got:\n%s", w.Body.String())
 	}
 }
 
@@ -2149,14 +2154,14 @@ func TestDataviewTableActionMissingNote(t *testing.T) {
 	}
 }
 
-func TestDataviewTableActionHiddenPath(t *testing.T) {
+func TestDataviewTableActionConfiguredHiddenPath(t *testing.T) {
 	v := makeDataviewVault(t)
-	// Create a hidden note.
+	// Create a hidden note with a dataview table.
 	hiddenPath := filepath.Join(v.Root, "Areas", "Secret.md")
 	if err := os.MkdirAll(filepath.Dir(hiddenPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(hiddenPath, []byte("# Secret\n"), 0o644); err != nil {
+	if err := os.WriteFile(hiddenPath, []byte("# Secret\n\n```dataview\nTABLE status, file.link FROM \"Projects\" SORT file.name\n```\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2165,13 +2170,16 @@ func TestDataviewTableActionHiddenPath(t *testing.T) {
 	}
 
 	s := NewServer(v, "", "")
+	// Configured hidden path + dataview action is now allowed (direct-read semantics).
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/Areas/Secret.md?action=renderDataviewTable&table=1", nil)
 	s.ServeHTTP(w, r)
 
-	// Hidden path: 404.
-	if w.Code != 404 {
-		t.Fatalf("expected 404 for hidden note, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 200 {
+		t.Fatalf("expected 200 for configured hidden note dataview action, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `href="/Projects/Alpha.md"`) {
+		t.Fatalf("dataview table on configured hidden note should render project rows:\n%s", w.Body.String())
 	}
 }
 

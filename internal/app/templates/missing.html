@@ -1,1 +1,11 @@
-{{define "missing"}}{{template "layout-start" .}}<div class="page-header"><div><p class="eyebrow">Missing note</p><h1>Not found</h1></div></div><div class="empty-state missing-note-state"><p>No note matches <code>{{.Name}}</code>.</p><p class="empty-actions"><a href="/">Return home</a> · <a href="/_search">Search notes</a></p></div>{{template "layout-end" .}}{{end}}
+{{define "missing"}}
+{{template "layout-start" .}}
+<div class="page-header"><div><p class="eyebrow">Missing note</p><h1>Not found</h1></div></div>
+<div class="empty-state missing-note-state"{{if and .EditCSRFToken .SourceRel}} data-missing-create-context data-edit-csrf="{{.EditCSRFToken}}" data-missing-target="{{.Name}}" data-missing-source="{{.SourceRel}}"{{end}}>
+  <p>No note matches <code>{{.Name}}</code>.</p>
+  {{if .SourceRel}}<p>Referenced from <a href="{{.SourceURL}}">{{.SourceRel}}</a>.</p>{{end}}
+  {{if and .EditCSRFToken .SourceRel}}<p class="empty-actions"><button class="btn primary" type="button" data-edit-missing-create>Create this note</button></p>{{end}}
+  <p class="empty-actions"><a href="/">Return home</a> · <a href="/_search">Search notes</a></p>
+</div>
+{{template "layout-end" .}}
+{{end}}

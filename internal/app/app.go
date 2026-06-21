@@ -122,7 +122,7 @@ func (v *Vault) MarkdownFiles() []string {
 			return nil
 		}
 		rel := v.Rel(p)
-		if rel != "." && v.isHiddenRel(rel, cfg.Hidden) {
+		if rel != "." && v.isExcludedFromEnumeration(rel, cfg) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -137,15 +137,10 @@ func (v *Vault) MarkdownFiles() []string {
 	return out
 }
 
-func (v *Vault) isHiddenRel(rel string, configured []string) bool {
+func (v *Vault) isConfiguredHidden(rel string, configured []string) bool {
 	rel = filepath.ToSlash(strings.Trim(rel, "/"))
 	if rel == "." || rel == "" {
 		return false
-	}
-	for _, part := range strings.Split(rel, "/") {
-		if strings.HasPrefix(part, ".") {
-			return true
-		}
 	}
 	for _, hidden := range configured {
 		hidden = filepath.ToSlash(strings.Trim(hidden, " /"))
@@ -157,10 +152,6 @@ func (v *Vault) isHiddenRel(rel string, configured []string) bool {
 		}
 	}
 	return false
-}
-
-func (v *Vault) HiddenRel(rel string) bool {
-	return v.isHiddenRel(rel, v.LoadConfig().Hidden)
 }
 
 func (v *Vault) ReadNote(relOrAbs string) (Note, error) {
@@ -284,17 +275,20 @@ func (v *Vault) RecentNotes(limit int) []Note {
 	return notes
 }
 func (v *Vault) Tree(maxDepth int) []TreeNode {
-	return v.tree(v.Root, 0, maxDepth, "", v.LoadConfig().Hidden)
+	cfg := v.LoadConfig()
+	return v.tree(v.Root, 0, maxDepth, "", cfg)
 }
 func (v *Vault) TreeForActive(maxDepth int, activeRel string) []TreeNode {
-	return v.tree(v.Root, 0, maxDepth, filepath.ToSlash(strings.TrimPrefix(activeRel, "/")), v.LoadConfig().Hidden)
+	cfg := v.LoadConfig()
+	return v.tree(v.Root, 0, maxDepth, filepath.ToSlash(strings.TrimPrefix(activeRel, "/")), cfg)
 }
 
 func (v *Vault) SidebarTree(activeRel string) []TreeNode {
-	return v.sidebarTree(filepath.ToSlash(strings.Trim(strings.TrimPrefix(activeRel, "/"), "/")), v.LoadConfig().Hidden)
+	cfg := v.LoadConfig()
+	return v.sidebarTree(filepath.ToSlash(strings.Trim(strings.TrimPrefix(activeRel, "/"), "/")), cfg)
 }
 
-func (v *Vault) sidebarTree(activeRel string, hidden []string) []TreeNode {
+func (v *Vault) sidebarTree(activeRel string, cfg Config) []TreeNode {
 	ents, _ := os.ReadDir(v.Root)
 	sort.Slice(ents, func(i, j int) bool {
 		if ents[i].IsDir() != ents[j].IsDir() {
@@ -310,7 +304,7 @@ func (v *Vault) sidebarTree(activeRel string, hidden []string) []TreeNode {
 		}
 		p := filepath.Join(v.Root, e.Name())
 		rel := v.Rel(p)
-		if v.isHiddenRel(rel, hidden) {
+		if v.isExcludedFromEnumeration(rel, cfg) {
 			continue
 		}
 		if !e.IsDir() && !v.IsMarkdown(p) {
@@ -323,14 +317,14 @@ func (v *Vault) sidebarTree(activeRel string, hidden []string) []TreeNode {
 			n.ContainsActive = n.IsActive || (e.IsDir() && strings.HasPrefix(activeRel, rel+"/"))
 		}
 		if e.IsDir() && n.ContainsActive {
-			n.Children = v.activeBranchChildren(rel, activeRel, hidden)
+			n.Children = v.activeBranchChildren(rel, activeRel, cfg)
 		}
 		out = append(out, n)
 	}
 	return out
 }
 
-func (v *Vault) activeBranchChildren(parentRel, activeRel string, hidden []string) []TreeNode {
+func (v *Vault) activeBranchChildren(parentRel, activeRel string, cfg Config) []TreeNode {
 	if activeRel == "" || parentRel == activeRel || !strings.HasPrefix(activeRel, parentRel+"/") {
 		return nil
 	}
@@ -341,7 +335,7 @@ func (v *Vault) activeBranchChildren(parentRel, activeRel string, hidden []strin
 		return nil
 	}
 	childRel := parentRel + "/" + next
-	if v.isHiddenRel(childRel, hidden) {
+	if v.isExcludedFromEnumeration(childRel, cfg) {
 		return nil
 	}
 
@@ -358,12 +352,12 @@ func (v *Vault) activeBranchChildren(parentRel, activeRel string, hidden []strin
 	n.IsActive = childRel == activeRel
 	n.ContainsActive = n.IsActive || (n.IsDir && strings.HasPrefix(activeRel, childRel+"/"))
 	if n.IsDir {
-		n.Children = v.activeBranchChildren(childRel, activeRel, hidden)
+		n.Children = v.activeBranchChildren(childRel, activeRel, cfg)
 	}
 	return []TreeNode{n}
 }
 
-func (v *Vault) tree(dir string, depth, max int, activeRel string, hidden []string) []TreeNode {
+func (v *Vault) tree(dir string, depth, max int, activeRel string, cfg Config) []TreeNode {
 	ents, _ := os.ReadDir(dir)
 	sort.Slice(ents, func(i, j int) bool {
 		if ents[i].IsDir() != ents[j].IsDir() {
@@ -378,7 +372,7 @@ func (v *Vault) tree(dir string, depth, max int, activeRel string, hidden []stri
 		}
 		p := filepath.Join(dir, e.Name())
 		rel := v.Rel(p)
-		if v.isHiddenRel(rel, hidden) {
+		if v.isExcludedFromEnumeration(rel, cfg) {
 			continue
 		}
 		if !e.IsDir() && !v.IsMarkdown(p) {
@@ -386,7 +380,7 @@ func (v *Vault) tree(dir string, depth, max int, activeRel string, hidden []stri
 		}
 		n := TreeNode{Name: e.Name(), Rel: rel, URL: v.URLForRel(rel), IsDir: e.IsDir()}
 		if e.IsDir() && depth < max {
-			n.Children = v.tree(p, depth+1, max, activeRel, hidden)
+			n.Children = v.tree(p, depth+1, max, activeRel, cfg)
 		}
 		if activeRel != "" {
 			n.IsActive = rel == activeRel
@@ -479,10 +473,11 @@ type Server struct {
 	searcher   *Searcher
 	user, pass string
 	templates  *template.Template
+	csrfToken  string
 }
 
 func NewServer(v *Vault, user, pass string) *Server {
-	s := &Server{vault: v, renderer: NewRenderer(v), searcher: NewSearcher(v), user: user, pass: pass}
+	s := &Server{vault: v, renderer: NewRenderer(v), searcher: NewSearcher(v), user: user, pass: pass, csrfToken: generateCSRFToken()}
 	s.templates = template.Must(template.New("all").Funcs(template.FuncMap{"safe": func(x string) template.HTML { return template.HTML(x) }, "url": v.URLForRel}).ParseFS(templateFS, "templates/*.html"))
 	return s
 }
@@ -519,9 +514,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.dataviewDiagnostics(gw, r)
 	case "/_orphans":
 		s.orphans(gw, r)
+	case "/_trash":
+		s.editTrashPage(gw, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/_tags/") {
 			s.tag(gw, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/_api/edit/") {
+			s.editAPI(gw, r)
 			return
 		}
 		s.path(gw, r)
@@ -552,7 +553,11 @@ func (s *Server) common(title string) map[string]any {
 
 func (s *Server) commonForActive(title, activeRel string) map[string]any {
 	cfg := s.vault.LoadConfig()
-	return map[string]any{"Title": title, "Tree": s.vault.SidebarTree(activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
+	data := map[string]any{"Title": title, "Tree": s.vault.SidebarTree(activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
+	if cfg.Editing.Enabled {
+		data["EditCSRFToken"] = s.csrfToken
+	}
+	return data
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -606,6 +611,10 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) missing(w http.ResponseWriter, r *http.Request) {
 	c := s.common("Note not found")
 	c["Name"] = r.URL.Query().Get("name")
+	if src := r.URL.Query().Get("source"); src != "" {
+		c["SourceRel"] = src
+		c["SourceURL"] = s.vault.URLForRel(src)
+	}
 	w.WriteHeader(404)
 	s.render(w, "missing", c)
 }
@@ -860,7 +869,7 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if s.vault.HiddenRel(s.vault.Rel(p)) {
+	if !s.vault.DirectReadAllowed(s.vault.Rel(p)) {
 		http.NotFound(w, r)
 		return
 	}
@@ -906,9 +915,14 @@ func (s *Server) path(w http.ResponseWriter, r *http.Request) {
 		doc := renderer.Render(n)
 
 		c := s.commonForActive(doc.Title, n.RelPath)
+		cfgForBadge := s.vault.LoadConfig()
 		c["Note"] = n
 		c["Doc"] = doc
+		c["CanEditNote"] = isMarkdownEditable(n.RelPath)
 		c["Breadcrumbs"] = breadcrumbsForRel(s.vault, n.RelPath)
+		c["IsHidden"] = s.vault.isConfiguredHidden(n.RelPath, cfgForBadge.Hidden)
+		c["IsTemplate"] = s.vault.isTemplateRel(n.RelPath, cfgForBadge.Editing.TemplateName)
+		c["CanManageNote"] = c["CanEditNote"].(bool) && !c["IsTemplate"].(bool)
 
 		if resolver != nil {
 			noteMeta, ok := idx.ByRel[n.RelPath]
@@ -992,16 +1006,27 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 	if selectedSort.Field == "modified" {
 		idx, _ = s.vault.BuildIndex()
 	}
-	ents, _ := os.ReadDir(p)
+	ents, readDirErr := os.ReadDir(p)
 	var items []map[string]any
+	folderRel := s.vault.Rel(p)
+	isHiddenFolder := s.vault.isConfiguredHidden(folderRel, cfg.Hidden)
 	for _, e := range ents {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		pp := filepath.Join(p, e.Name())
 		rel := s.vault.Rel(pp)
-		if s.vault.isHiddenRel(rel, cfg.Hidden) {
-			continue
+		if isHiddenFolder {
+			// Direct listing of a configured hidden folder: show its children
+			// but still exclude dot-prefixed, trash, and template.
+			if s.vault.isDotBlocked(rel) || s.vault.isTrashRel(rel, cfg.Editing.TrashPath) ||
+				(cfg.Editing.HideTemplates && s.vault.isTemplateRel(rel, cfg.Editing.TemplateName)) {
+				continue
+			}
+		} else {
+			if s.vault.isExcludedFromEnumeration(rel, cfg) {
+				continue
+			}
 		}
 		item := map[string]any{"Name": e.Name(), "Dir": e.IsDir(), "URL": s.vault.URLForRel(rel)}
 		if selectedSort.Field == "modified" {
@@ -1050,6 +1075,7 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 		items = items[:100]
 	}
 	relPath := s.vault.Rel(p)
+	cfgBadge := s.vault.LoadConfig()
 	c := s.commonForActive(filepath.Base(p), relPath)
 	c["Path"] = relPath
 	c["FolderName"] = filepath.Base(p)
@@ -1058,6 +1084,9 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 	c["SortLinks"] = folderSortLinks(s.vault.URLForRel(relPath), selectedSort)
 	c["TotalItems"] = totalItems
 	c["Capped"] = totalItems > 100
+	c["IsHidden"] = s.vault.isConfiguredHidden(relPath, cfgBadge.Hidden)
+	c["CanEditFolder"] = relPath != "" && cfgBadge.Editing.Enabled
+	c["CanRenameFolder"] = relPath != "" && cfgBadge.Editing.Enabled && readDirErr == nil && len(ents) == 0
 	s.render(w, "folder", c)
 }
 

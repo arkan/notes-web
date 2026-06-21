@@ -57,7 +57,7 @@ func (r *Renderer) WithIndex(idx *VaultIndex) *Renderer {
 }
 
 func (r *Renderer) Render(n Note) RenderedDoc {
-	body := r.preprocess(n.Body)
+	body := r.preprocess(n.Body, n.RelPath)
 	var buf bytes.Buffer
 	_ = r.md.Convert([]byte(body), &buf)
 	fm := renderFrontmatter(n.Frontmatter)
@@ -176,7 +176,7 @@ func decorateCodeBlocks(s string) string {
 	})
 }
 
-func (r *Renderer) preprocess(s string) string {
+func (r *Renderer) preprocess(s string, sourceRel string) string {
 	if r.idx != nil {
 		s = preprocessDataviewBlocksWithIndex(s, r.vault, r.idx)
 		s = preprocessNotesMapBlocksWithIndex(s, r.vault, r.idx)
@@ -188,11 +188,31 @@ func (r *Renderer) preprocess(s string) string {
 	s = preprocessCallouts(s)
 	s = preprocessMermaid(s)
 	if r.resolver != nil {
-		return r.preprocessWikiLinksWithResolver(s)
+		return r.preprocessWikiLinksWithResolver(s, sourceRel)
 	}
 	return wikiLinkRe.ReplaceAllStringFunc(s, func(m string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(m, "[["), "]]")
-		return r.vault.wikiLinkMarkdown(inner, m)
+		link, ok := parseWikiLink(inner)
+		if !ok {
+			return m
+		}
+		res := r.vault.ResolveWikiLink(link.Raw)
+		switch res.Kind {
+		case "unique":
+			u := r.vault.URLForRel(res.Matches[0].RelPath)
+			if res.Heading != "" {
+				u += "#" + slugify(res.Heading)
+			}
+			return "[" + link.Display + "](" + u + ")"
+		case "ambiguous":
+			return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(res.Target) + ")"
+		default:
+			u := "/_missing?name=" + url.QueryEscape(res.Target)
+			if sourceRel != "" {
+				u += "&source=" + url.QueryEscape(sourceRel)
+			}
+			return "[" + link.Display + "](" + u + ")"
+		}
 	})
 }
 
@@ -252,7 +272,7 @@ func truncateUTF8Bytes(s string, maxBytes int) string {
 
 // preprocessWikiLinksWithResolver resolves wikilinks using the index resolver,
 // avoiding per-link full vault scans via ResolveWikiLink.
-func (r *Renderer) preprocessWikiLinksWithResolver(s string) string {
+func (r *Renderer) preprocessWikiLinksWithResolver(s string, sourceRel string) string {
 	return wikiLinkRe.ReplaceAllStringFunc(s, func(match string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(match, "[["), "]]")
 		link, ok := parseWikiLink(inner)
@@ -271,7 +291,11 @@ func (r *Renderer) preprocessWikiLinksWithResolver(s string) string {
 		case "ambiguous":
 			return "[" + link.Display + "](/_resolve?name=" + url.QueryEscape(link.Target) + ")"
 		default:
-			return "[" + link.Display + "](/_missing?name=" + url.QueryEscape(link.Target) + ")"
+			u := "/_missing?name=" + url.QueryEscape(link.Target)
+			if sourceRel != "" {
+				u += "&source=" + url.QueryEscape(sourceRel)
+			}
+			return "[" + link.Display + "](" + u + ")"
 		}
 	})
 }

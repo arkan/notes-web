@@ -212,6 +212,422 @@ func TestCommandPaletteMarkupAPIAndClientBehavior(t *testing.T) {
 	}
 }
 
+func TestEditModeHooksRenderOnlyWhenEditingEnabled(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, unwanted := range []string{`data-edit-open`, `data-edit-new`, `data-edit-rename`, `data-edit-trash`, `data-edit-csrf=`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("edit hook %q should not render when editing is disabled:\n%s", unwanted, body)
+		}
+	}
+
+	v = makeVault(t)
+	enableEditing(t, v)
+	s = NewServer(v, "", "")
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{
+		`data-edit-surface data-edit-kind="note" data-edit-path="Areas/Target.md" data-edit-csrf="`,
+		`<div class="note-actions" data-note-actions>`,
+		`data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>`,
+		`<div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Note actions" hidden>`,
+		`<button class="note-actions-item" role="menuitem" type="button" data-edit-new>New</button>`,
+		`<button class="note-actions-item" role="menuitem" type="button" data-edit-open>Edit</button>`,
+		`<button class="note-actions-item" role="menuitem" type="button" data-edit-rename>Rename</button>`,
+		`<button class="note-actions-item danger" role="menuitem" type="button" data-edit-trash data-edit-trash-kind="note">Move to Trash</button>`,
+		`<button class="note-actions-item copy-link" role="menuitem" type="button" data-copy-path>Copy path</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing edit-mode markup %q in:\n%s", want, body)
+		}
+	}
+	if strings.Count(body, `data-note-actions-toggle`) != 1 {
+		t.Fatalf("note header should render one compact actions trigger:\n%s", body)
+	}
+}
+
+func TestEditModeHooksDoNotRenderForDotMarkdownNotes(t *testing.T) {
+	v := makeVault(t)
+	legacyPath := filepath.Join(v.Root, "Areas", "Legacy.markdown")
+	if err := os.WriteFile(legacyPath, []byte("# Legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	enableEditing(t, v)
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Legacy.markdown", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, `data-edit-open`) || strings.Contains(body, `data-edit-surface`) || strings.Contains(body, `data-edit-new`) || strings.Contains(body, `data-edit-rename`) || strings.Contains(body, `data-edit-trash`) {
+		t.Fatalf("edit hooks should not render for .markdown files:\n%s", body)
+	}
+}
+
+func TestPhase2EditCRUDHooksRenderInFolderAndMissingContexts(t *testing.T) {
+	v := makeVault(t)
+	enableEditing(t, v)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{
+		`class="folder-view reading-surface" data-edit-context data-edit-kind="folder" data-edit-directory="Areas" data-edit-path="Areas" data-edit-csrf="`,
+		`<div class="note-actions" data-note-actions>`,
+		`data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>`,
+		`<div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Folder actions" hidden>`,
+		`<button class="note-actions-item" role="menuitem" type="button" data-edit-new>New</button>`,
+		`<button class="note-actions-item danger" role="menuitem" type="button" data-edit-trash data-edit-trash-kind="folder">Move to Trash</button>`,
+		`<button class="note-actions-item copy-link" role="menuitem" type="button" data-copy-path>Copy path</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing folder edit CRUD markup %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `data-edit-rename`) {
+		t.Fatalf("non-empty folder UI should not expose Rename action:\n%s", body)
+	}
+	if err := os.Mkdir(filepath.Join(v.Root, "Empty Folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Empty%20Folder", nil)
+	s.ServeHTTP(w, r)
+	emptyFolderBody := w.Body.String()
+	if !strings.Contains(emptyFolderBody, `data-edit-rename`) || !strings.Contains(emptyFolderBody, `data-can-rename="true"`) {
+		t.Fatalf("empty folder UI should expose Rename action:\n%s", emptyFolderBody)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_missing?name=Missing%20Note&source=Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{
+		`data-missing-create-context data-edit-csrf="`,
+		`data-missing-target="Missing Note"`,
+		`data-missing-source="Areas/Target.md"`,
+		`data-edit-missing-create>Create this note</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing missing-link create markup %q in:\n%s", want, body)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_missing?name=Missing%20Note", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	if strings.Contains(body, `data-edit-missing-create`) || strings.Contains(body, `data-missing-create-context`) {
+		t.Fatalf("missing-link create should require source context:\n%s", body)
+	}
+}
+
+func TestPhase3TrashUIHooksRender(t *testing.T) {
+	v := makeVault(t)
+	enableEditing(t, v)
+	snapshot := filepath.Join(v.Root, "_trash", "2026-06-21T120000-abcdef")
+	if err := os.MkdirAll(snapshot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"original_path":"Areas/Old.md","trashed_at":"2026-06-21T12:00:00Z","kind":"note"}`
+	if err := os.WriteFile(filepath.Join(snapshot, ".notes-web-trash.json"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/Target.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `data-edit-trash data-edit-trash-kind="note">Move to Trash</button>`) {
+		t.Fatalf("note page should expose Move to Trash action:\n%s", body)
+	}
+	if strings.Contains(body, `Delete`) || strings.Contains(body, `Purge`) {
+		t.Fatalf("note page should not expose Delete/Purge copy:\n%s", body)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/Areas", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	if !strings.Contains(body, `data-edit-trash data-edit-trash-kind="folder">Move to Trash</button>`) {
+		t.Fatalf("folder page should expose Move to Trash action:\n%s", body)
+	}
+	if strings.Contains(body, `Delete`) || strings.Contains(body, `Purge`) {
+		t.Fatalf("folder page should not expose Delete/Purge copy:\n%s", body)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_trash", nil)
+	s.ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{
+		`class="trash-view reading-surface" data-trash-context data-edit-csrf="`,
+		`class="trash-card" data-trash-entry data-trash-snapshot="2026-06-21T120000-abcdef" data-trash-original-path="Areas/Old.md"`,
+		`<span class="trash-kind">note</span>`,
+		`<h2>Areas/Old.md</h2>`,
+		`<dt>Trashed at</dt><dd>2026-06-21T12:00:00Z</dd>`,
+		`<dt>Snapshot</dt><dd><small>2026-06-21T120000-abcdef</small></dd>`,
+		`data-trash-restore>Restore</button>`,
+		`data-trash-restore-as>Restore as…</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("trash page missing %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `Delete`) || strings.Contains(body, `Purge`) {
+		t.Fatalf("trash page should not expose Delete/Purge copy:\n%s", body)
+	}
+}
+
+func TestHiddenBadgeOnConfiguredHiddenNote(t *testing.T) {
+	v := makeVault(t)
+	hiddenPath := filepath.Join(v.Root, "Areas", "HiddenBadge.md")
+	if err := os.WriteFile(hiddenPath, []byte("# Hidden Badge\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - Areas/HiddenBadge.md\nediting:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/HiddenBadge.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `<span class="chip badge-hidden">Hidden</span>`) {
+		t.Fatalf("configured hidden note should show Hidden badge:\n%s", body)
+	}
+}
+
+func TestTemplateBadgeOnTemplateNote(t *testing.T) {
+	v := makeVault(t)
+	enableEditing(t, v)
+	tmplPath := filepath.Join(v.Root, "Areas", "_template.md")
+	if err := os.MkdirAll(filepath.Dir(tmplPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmplPath, []byte("# Template Note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/Areas/_template.md", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `<span class="chip badge-template">Template</span>`) {
+		t.Fatalf("template note should show Template badge:\n%s", body)
+	}
+	for _, want := range []string{`data-edit-new`, `data-edit-open`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("template note should keep edit action %q:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`data-edit-rename`, `data-edit-trash`, `data-can-trash="true"`, `data-can-rename="true"`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("template note should not expose management action %q:\n%s", unwanted, body)
+		}
+	}
+}
+
+func TestHiddenBadgeOnConfiguredHiddenFolder(t *testing.T) {
+	v := makeVault(t)
+	hiddenDir := filepath.Join(v.Root, "SecretFolder")
+	if err := os.MkdirAll(hiddenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, ".notes-web.yaml"), []byte("hidden:\n  - SecretFolder\nediting:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/SecretFolder", nil)
+	s.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `<span class="chip badge-hidden">Hidden</span>`) {
+		t.Fatalf("configured hidden folder should show Hidden badge:\n%s", body)
+	}
+}
+
+func TestPaletteActionStringsInJS(t *testing.T) {
+	v := makeVault(t)
+	enableEditing(t, v)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+
+	for _, action := range []string{
+		"Edit current",
+		"New here",
+		"Rename current",
+		"Move to Trash",
+		"Open Trash",
+	} {
+		if !strings.Contains(js, action) {
+			t.Fatalf("palette action %q should be defined in JS:\n%s", action, js)
+		}
+	}
+	// Verify actions are dispatched, not navigated.
+	if !strings.Contains(js, `item.kind === 'action'`) {
+		t.Fatal("palette should dispatch action kind, not navigate")
+	}
+}
+
+func TestEditModeClientAssetsExposePhase1Behavior(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function initEditMode()",
+		"function initNoteActionMenus()",
+		"function positionNoteActionsMenu",
+		"function closeNoteActionMenus",
+		"function openEditMode(surface)",
+		"function openCreateDialog(trigger)",
+		"function openRenameDialog(trigger)",
+		"function openMissingCreateDialog(trigger)",
+		"/_api/edit/source/",
+		"/_api/edit/preview",
+		"/_api/edit/save",
+		"/_api/edit/create",
+		"/_api/edit/rename",
+		"/_api/edit/missing-link-create",
+		"Preview stale",
+		"Unsaved changes",
+		"Save conflict",
+		"Copy draft",
+		"Reload disk",
+		"Create note",
+		"Create folder",
+		"Impact preview",
+		"Hidden paths remain accessible by direct URL",
+		"data-edit-new",
+		"data-edit-rename",
+		"data-edit-missing-create",
+		"data-note-actions-toggle",
+		"data-note-actions-menu",
+		"beforeunload",
+		"ev.key.toLowerCase() !== 'e'",
+		"ev.key.toLowerCase() === 's'",
+		"ev.key === 'Enter'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing edit-mode JS %q in:\n%s", want, js)
+		}
+	}
+	// Verify enhanceEditPreview does NOT call initDataviewTables.
+	// Find the enhanceEditPreview function body and check it doesn't contain
+	// initDataviewTables.
+	funcStart := strings.Index(js, "function enhanceEditPreview")
+	if funcStart < 0 {
+		t.Fatal("enhanceEditPreview function not found in JS")
+	}
+	// Find the next function definition after enhanceEditPreview
+	funcEnd := strings.Index(js[funcStart+len("function enhanceEditPreview"):], "\nfunction ")
+	funcBody := js[funcStart : funcStart+len("function enhanceEditPreview")+funcEnd]
+	if strings.Contains(funcBody, "initDataviewTables") {
+		t.Fatal("enhanceEditPreview must NOT call initDataviewTables (static preview)")
+	}
+	// Verify modified-click guard mentions modifier keys.
+	for _, want := range []string{"ev.button !== 0", "ev.metaKey", "ev.ctrlKey", "ev.shiftKey", "ev.altKey"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("modified-click guard missing %q in:\n%s", want, js)
+		}
+	}
+	for _, want := range []string{"let editNavigationConfirmed = false", "editNavigationConfirmed = true", "if (editNavigationConfirmed) return"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("confirmed navigation guard missing %q in:\n%s", want, js)
+		}
+	}
+	for _, want := range []string{"function trapEditModalFocus", "ev.key !== 'Tab'", "returnFocus.focus", "openEditModal('New', 'edit-create-modal', trigger)"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("modal focus trap missing %q in:\n%s", want, js)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".note.is-editing",
+		".edit-workbench",
+		".edit-tabs",
+		".edit-stale-badge",
+		".edit-source-panel textarea",
+		".edit-message-conflict",
+		".edit-modal",
+		".edit-impact-group",
+		".edit-template-snippet",
+		".edit-modal-actions",
+		".note-actions-toggle",
+		".note-actions-menu",
+		".note-actions-item",
+		"@media(max-width:850px){body.edit-mode-active{overflow:hidden}",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing edit-mode CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
+func TestPhase3TrashClientAssetsExposeUIBehavior(t *testing.T) {
+	v := makeVault(t)
+	s := NewServer(v, "", "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/_static/app.js", nil)
+	s.ServeHTTP(w, r)
+	js := w.Body.String()
+	for _, want := range []string{
+		"function moveEditPathToTrash",
+		"function restoreTrashEntry",
+		"function restoreTrashEntryAs",
+		"data-edit-trash",
+		"data-trash-restore",
+		"data-trash-restore-as",
+		"/_api/edit/trash",
+		"/_api/edit/trash/restore",
+		"Move to Trash failed",
+		"This folder is not empty. Empty it before moving it to Trash.",
+		"requires_confirmation === 'restore_as'",
+		"Restore as relative path:",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing Phase 3 trash JS %q in:\n%s", want, js)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/_static/style.css", nil)
+	s.ServeHTTP(w, r)
+	css := w.Body.String()
+	for _, want := range []string{
+		".btn.danger",
+		".trash-view",
+		".trash-list",
+		".trash-card",
+		".trash-actions",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("missing Phase 3 trash CSS %q in:\n%s", want, css)
+		}
+	}
+}
+
 func TestMobileSidebarOverlayBehavior(t *testing.T) {
 	v := makeVault(t)
 	s := NewServer(v, "", "")

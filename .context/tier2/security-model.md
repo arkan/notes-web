@@ -23,11 +23,34 @@ Notes Web assumes a trusted local Markdown vault and a private network deploymen
 - `ReadNote` repeats the escape check for rel/abs note reads.
 - Never add a route that accepts a free `path` query parameter to read vault files unless it goes through the same model and has a plan.
 
-## Hidden path semantics
+## Path classification semantics
 
-- Hidden means any dot-prefixed path segment or configured `hidden` prefix.
-- Hidden paths should be absent from `MarkdownFiles`, folder listings, normal note/file routes, favorites, quick-jump links, diagnostics, and AJAX actions.
-- If a new feature lists vault content, test both dot-hidden and configured-hidden paths.
+The vault distinguishes four path categories for access policy:
+
+### Dot-prefixed (always blocked)
+- Any path segment starting with `.` (e.g. `.git`, `.obsidian`, `.hidden/Note.md`).
+- Blocked for direct read/write and excluded from all enumeration (MarkdownFiles, folder listings, tree, sidebar, favorites, quick-jump, search, palette, backlinks, Dataview, diagnostics).
+
+### Configured hidden (non-enumerated, direct-URL addressable)
+- Paths listed in the `hidden:` YAML key.
+- Excluded from all enumeration surfaces (MarkdownFiles, folder listings, tree, sidebar, favorites, quick-jump, search, palette, backlinks, Dataview, diagnostics).
+- Accessible by direct URL (note/folder route). Shows a Hidden badge in reading context.
+- Full CRUD support when editing is enabled.
+
+### Trash subtree (non-enumerated, direct CRUD blocked)
+- Paths under the configured `editing.trash_path` (default `_trash`).
+- Excluded from all enumeration surfaces.
+- Blocked for direct read/write via note/folder route. Only accessible through the dedicated Trash view/API.
+
+### Template files (non-enumerated, direct-read addressable)
+- Files matching the configured `editing.template_name` (default `_template.md`).
+- Excluded from enumeration when `editing.hide_templates` is true (default).
+- Accessible by direct URL for read and edit. Shows a Template badge in reading context.
+- Not created, renamed, moved to trash, or scanned for link rewrites in v1.
+
+### New features listing vault content
+
+- If a new feature lists vault content, test all categories: dot-prefixed, configured-hidden, trash, and template paths.
 
 ## Markdown and HTML output
 
@@ -39,13 +62,13 @@ Notes Web assumes a trusted local Markdown vault and a private network deploymen
 ## Internal actions and AJAX
 
 - `renderDataviewTable` is note-local: `/Note.md?action=renderDataviewTable&table=N`.
-- It runs inside `Server.path`, after auth, path resolution, and hidden checks.
+- It runs inside `Server.path`, after auth, path resolution, and direct-read path policy checks.
 - It rejects non-GET, non-Markdown files, missing/invalid table indexes, undeclared filters, invalid sort params, and any `path` query key.
 - Invalid action responses should be HTML `dataview-error` fragments, not plaintext pages, so browser replacement stays predictable.
 
 ## File serving
 
-- Non-Markdown files are served only after normal path resolution and hidden checks.
+- Non-Markdown files are served only after normal path resolution and direct-read path policy checks.
 - MIME type is set from extension when known, then `http.ServeFile` handles response mechanics.
 - Do not add directory traversal shortcuts for assets outside the vault or embedded static files.
 
@@ -58,7 +81,7 @@ Notes Web assumes a trusted local Markdown vault and a private network deploymen
 ## Security review checklist
 
 - Does this change read, list, render, mutate, or expose a vault path?
-- Does it honor auth before work and hidden checks before content exposure?
+- Does it honor auth before work and path policy checks (dot-blocked, trash, configured-hidden, template) before content exposure?
 - Are all query-derived values validated and escaped?
 - Could a public URL, AJAX param, or config value bypass the vault root?
 - Does a new browser feature persist sensitive state or call an external service?

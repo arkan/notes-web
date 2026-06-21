@@ -189,8 +189,21 @@ test.describe("Copy buttons", () => {
   });
 
   test("copy path button is present on note page", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: () => Promise.resolve() },
+      });
+    });
     await page.goto("/Syntax/All%20Syntaxes.md");
     await page.waitForSelector("article.note");
-    await expect(page.locator('button[data-copy-path]')).toBeVisible();
+    const trigger = page.getByRole("button", { name: "Actions" });
+    await trigger.click();
+    const menu = page.locator("[data-note-actions-menu]");
+    const copyPath = menu.getByRole("menuitem", { name: "Copy path" });
+    await expect(copyPath).toBeVisible();
+    await copyPath.click();
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
   });
 });

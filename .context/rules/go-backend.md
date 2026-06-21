@@ -12,7 +12,7 @@ Rules for the Notes Web Go server and vault logic.
 1. Keep the runtime a small Go binary using standard-library HTTP and templates.
 2. Keep `cmd/notes-web/main.go` as the thin CLI entrypoint into `internal/app`.
 3. Keep vault path resolution centralized in existing vault/server helpers.
-4. Reject traversal and hidden paths before reading, rendering, or mutating vault files.
+4. Reject traversal before reading, rendering, or mutating vault files. Dot-prefixed paths are blocked for direct read/write and excluded from enumeration. Configured hidden paths are non-enumerated but direct-URL addressable. `_trash` subtree is non-enumerated and direct CRUD blocked. `_template.md` is direct-read/edit addressable, and non-enumerated when `editing.hide_templates` is true.
 5. Run auth before internal actions, file serving, and AJAX fragments.
 6. Keep `Renderer.Render` and `Renderer.preprocess` as the Markdown rendering entry path.
 7. Preserve preprocess order: Dataview, notes map, callouts, Mermaid, wikilinks.
@@ -31,7 +31,9 @@ Renderer.preprocess order: Dataview -> notes map -> callouts -> Mermaid -> wikil
 ```
 
 ```text
-Normal vault flow: auth -> path resolution -> hidden check -> read/index/render/action
+Normal vault flow: auth -> path resolution -> direct-read policy (dot/trash blocked, configured hidden/template allowed) -> read/index/render/action
+Enumeration flow: auth -> path resolution -> enum-exclusion check (dot, configured hidden, trash, template) -> read/index/render/action
+Edit API flow: auth -> path resolution -> editing-enabled check -> CSRF check -> path classification -> operation authorization -> read/write
 ```
 
 ## Load on demand

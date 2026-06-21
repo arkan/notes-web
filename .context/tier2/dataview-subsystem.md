@@ -55,7 +55,7 @@ This order is user-visible; changing it requires docs, Go tests, and E2E updates
 ## AJAX contract
 
 - URL shape: `/Some/Note.md?action=renderDataviewTable&table=1&filter.status=done`.
-- The action is handled inside `Server.path`, after normal auth, URL path resolution, and hidden checks.
+- The action is handled inside `Server.path`, after normal auth, URL path resolution, and direct-read path policy checks.
 - `table=N` is 1-based and counts only TABLE Dataview blocks in document order.
 - The response for valid requests is a full `.dataview-table-wrap` fragment.
 - Invalid requests return a `.dataview-error` fragment with an appropriate status.

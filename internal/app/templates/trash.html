@@ -1,0 +1,32 @@
+{{define "trash"}}
+{{template "layout-start" .}}
+<section class="trash-view reading-surface"{{if .EditCSRFToken}} data-trash-context data-edit-csrf="{{.EditCSRFToken}}"{{end}}>
+  <header class="page-header"><div><p class="eyebrow">Trash</p><h1>Trash</h1></div></header>
+  <div class="edit-message trash-message" data-trash-message hidden></div>
+  {{if .Err}}
+    <div class="empty-state"><p>{{.Err}}</p></div>
+  {{else if not .Entries}}
+    <div class="empty-state"><p>Trash is empty.</p></div>
+  {{else}}
+    <div class="trash-list" aria-label="Trash entries">
+      {{range .Entries}}
+        <article class="trash-card" data-trash-entry data-trash-snapshot="{{.Snapshot}}" data-trash-original-path="{{.OriginalPath}}">
+          <div class="trash-card-main">
+            <span class="trash-kind">{{.Kind}}</span>
+            <h2>{{.OriginalPath}}</h2>
+            <dl class="trash-meta">
+              <div><dt>Trashed at</dt><dd>{{.TrashedAt}}</dd></div>
+              <div><dt>Snapshot</dt><dd><small>{{.Snapshot}}</small></dd></div>
+            </dl>
+          </div>
+          <div class="trash-actions">
+            <button class="btn primary" type="button" data-trash-restore>Restore</button>
+            <button class="btn ghost" type="button" data-trash-restore-as>Restore as…</button>
+          </div>
+        </article>
+      {{end}}
+    </div>
+  {{end}}
+</section>
+{{template "layout-end" .}}
+{{end}}

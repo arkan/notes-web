@@ -16,6 +16,15 @@ type Config struct {
 	FolderSort     string         `yaml:"folder_sort"`
 	Sidebar        SidebarConfig  `yaml:"sidebar"`
 	Homepage       HomepageConfig `yaml:"homepage"`
+	Editing        EditingConfig  `yaml:"editing"`
+}
+
+type EditingConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	TrashPath     string `yaml:"trash_path"`
+	TemplateName  string `yaml:"template_name"`
+	HideTemplates bool   `yaml:"hide_templates"`
+	SlugMode      string `yaml:"slug"`
 }
 
 type UIConfig struct {
@@ -113,7 +122,7 @@ func (v *Vault) Favorites() []Favorite {
 	for _, fav := range items {
 		fav.Path = strings.Trim(fav.Path, " /")
 		fav.Label = strings.TrimSpace(fav.Label)
-		if fav.Path == "" || fav.Label == "" || v.isHiddenRel(fav.Path, cfg.Hidden) || (cfg.HideBlock("todo") && fav.Path == "_todo") {
+		if fav.Path == "" || fav.Label == "" || v.isExcludedFromEnumeration(fav.Path, cfg) || (cfg.HideBlock("todo") && fav.Path == "_todo") {
 			continue
 		}
 		fav.URL = v.URLForRel(fav.Path)
@@ -301,7 +310,7 @@ func (v *Vault) resolveQuickJumpPath(path string, cfg Config) string {
 	if strings.HasPrefix(path, "/") {
 		// Slash-prefixed vault path — strip leading / and apply hidden filtering.
 		rel := strings.TrimPrefix(path, "/")
-		if v.isHiddenRel(rel, cfg.Hidden) {
+		if v.isExcludedFromEnumeration(rel, cfg) {
 			return ""
 		}
 		return v.URLForRel(rel)
@@ -313,7 +322,7 @@ func (v *Vault) resolveQuickJumpPath(path string, cfg Config) string {
 		}
 	}
 	// Bare vault path — apply hidden filtering.
-	if v.isHiddenRel(path, cfg.Hidden) {
+	if v.isExcludedFromEnumeration(path, cfg) {
 		return ""
 	}
 	return v.URLForRel(path)
@@ -353,5 +362,15 @@ func (v *Vault) LoadConfig() Config {
 }
 
 func defaultConfig() Config {
-	return Config{DailyGlob: "Areas/Daily Briefings/*-briefing.md", DailyNotesGlob: "Daily Notes/*/*/*.md", FolderSort: "name_asc"}
+	return Config{
+		DailyGlob:      "Areas/Daily Briefings/*-briefing.md",
+		DailyNotesGlob: "Daily Notes/*/*/*.md",
+		FolderSort:     "name_asc",
+		Editing: EditingConfig{
+			TrashPath:     "_trash",
+			TemplateName:  "_template.md",
+			HideTemplates: true,
+			SlugMode:      "kebab_lowercase",
+		},
+	}
 }

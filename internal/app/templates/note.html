@@ -1,1 +1,32 @@
-{{define "note"}}{{template "layout-start" .}}<nav class="crumb reading-surface" aria-label="Breadcrumb">{{range $i, $crumb := .Breadcrumbs}}{{if $i}}<span class="crumb-separator" aria-hidden="true">/</span>{{end}}<a href="{{$crumb.URL}}"{{if $crumb.Current}} aria-current="page"{{end}}>{{$crumb.Label}}</a>{{end}}</nav><article class="note reading-surface"><header><div><h1>{{.Doc.Title}}</h1>{{if .Doc.Tags}}<div class="tag-row">{{range .Doc.Tags}}<a class="tag-badge chip" href="/_tags/{{.}}">#{{.}}</a>{{end}}</div>{{end}}</div><div class="note-actions">{{if .Doc.SourceURL}}<a class="btn ghost" href="{{.Doc.SourceURL}}">Open URL</a>{{end}}{{if .Doc.ReadingListPrompt}}<button class="btn ghost" data-copy="{{.Doc.ReadingListPrompt}}">Copy reading prompt</button>{{end}}<button class="copy-link btn ghost" data-copy-path>Copy path</button></div></header>{{if .Doc.Toc}}<details class="toc" data-panel-state="toc" open><summary>Table of contents</summary><ul>{{range .Doc.Toc}}<li class="lvl{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ul></details>{{end}}<div class="content">{{safe .Doc.HTML}}</div></article><details class="link-panel forward-links" data-panel-state="forward-links" open><summary><span class="panel-title">Forward links</span> <span class="count">{{len .ForwardLinks}}</span></summary>{{if .ForwardLinks}}<ul class="link-context-list">{{range .ForwardLinks}}<li>{{if eq .Kind "unique"}}<a href="{{.URL}}">{{.Display}}</a>{{else}}<span class="missing-link">{{.Display}}</span>{{end}} <small>{{.Kind}}</small></li>{{end}}</ul>{{else}}<p class="empty-state">No forward links.</p>{{end}}</details><details class="link-panel backlinks" data-panel-state="backlinks" open><summary><span class="panel-title">Backlinks</span> <span class="count">{{len .Backlinks}}</span></summary>{{if .Backlinks}}<ul class="link-context-list">{{range .Backlinks}}<li><a href="{{url .Source.RelPath}}">{{.Source.RelPath}}</a><blockquote>{{.Context}}</blockquote></li>{{end}}</ul>{{else}}<p class="empty-state">No backlinks.</p>{{end}}</details>{{template "layout-end" .}}{{end}}
+{{define "note"}}
+{{template "layout-start" .}}
+<nav class="crumb reading-surface" aria-label="Breadcrumb">
+  {{range $i, $crumb := .Breadcrumbs}}{{if $i}}<span class="crumb-separator" aria-hidden="true">/</span>{{end}}<a href="{{$crumb.URL}}"{{if $crumb.Current}} aria-current="page"{{end}}>{{$crumb.Label}}</a>{{end}}
+</nav>
+<article class="note reading-surface"{{if and .EditCSRFToken .CanEditNote}} data-edit-surface data-edit-kind="note" data-edit-path="{{.Note.RelPath}}" data-edit-csrf="{{.EditCSRFToken}}"{{if .CanManageNote}} data-can-rename="true" data-can-trash="true"{{end}}{{end}}>
+  <header>
+    <div>
+      <h1>{{.Doc.Title}}</h1>
+      <div class="badge-row">{{if .IsHidden}}<span class="chip badge-hidden">Hidden</span>{{end}}{{if .IsTemplate}}<span class="chip badge-template">Template</span>{{end}}{{if .Doc.Tags}}{{range .Doc.Tags}}<a class="tag-badge chip" href="/_tags/{{.}}">#{{.}}</a>{{end}}{{end}}</div>
+    </div>
+    <div class="note-actions" data-note-actions>
+      <button class="btn ghost icon-btn note-actions-toggle" type="button" data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>
+      <div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Note actions" hidden>
+        {{if .Doc.SourceURL}}<a class="note-actions-item" role="menuitem" href="{{.Doc.SourceURL}}">Open URL</a>{{end}}
+        {{if .Doc.ReadingListPrompt}}<button class="note-actions-item" role="menuitem" type="button" data-copy="{{.Doc.ReadingListPrompt}}">Copy reading prompt</button>{{end}}
+        {{if and .EditCSRFToken .CanEditNote}}<button class="note-actions-item" role="menuitem" type="button" data-edit-new>New</button><button class="note-actions-item" role="menuitem" type="button" data-edit-open>Edit</button>{{if .CanManageNote}}<button class="note-actions-item" role="menuitem" type="button" data-edit-rename>Rename</button><button class="note-actions-item danger" role="menuitem" type="button" data-edit-trash data-edit-trash-kind="note">Move to Trash</button>{{end}}{{end}}
+        <button class="note-actions-item copy-link" role="menuitem" type="button" data-copy-path>Copy path</button>
+      </div>
+    </div>
+  </header>
+  {{if .Doc.Toc}}<details class="toc" data-panel-state="toc" open><summary>Table of contents</summary><ul>{{range .Doc.Toc}}<li class="lvl{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ul></details>{{end}}
+  <div class="content">{{safe .Doc.HTML}}</div>
+</article>
+<details class="link-panel forward-links" data-panel-state="forward-links" open><summary><span class="panel-title">Forward links</span> <span class="count">{{len .ForwardLinks}}</span></summary>
+  {{if .ForwardLinks}}<ul class="link-context-list">{{range .ForwardLinks}}<li>{{if eq .Kind "unique"}}<a href="{{.URL}}">{{.Display}}</a>{{else}}<span class="missing-link">{{.Display}}</span>{{end}} <small>{{.Kind}}</small></li>{{end}}</ul>{{else}}<p class="empty-state">No forward links.</p>{{end}}
+</details>
+<details class="link-panel backlinks" data-panel-state="backlinks" open><summary><span class="panel-title">Backlinks</span> <span class="count">{{len .Backlinks}}</span></summary>
+  {{if .Backlinks}}<ul class="link-context-list">{{range .Backlinks}}<li><a href="{{url .Source.RelPath}}">{{.Source.RelPath}}</a><blockquote>{{.Context}}</blockquote></li>{{end}}</ul>{{else}}<p class="empty-state">No backlinks.</p>{{end}}
+</details>
+{{template "layout-end" .}}
+{{end}}

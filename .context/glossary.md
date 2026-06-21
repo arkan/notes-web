@@ -37,7 +37,7 @@ Short project terminology for Notes Web agents.
 
 - **VaultIndex**: In-memory index built from vault files and metadata.
 - **NoteMeta**: Parsed note metadata used by search, dashboards, links, and Dataview.
-- **Hidden path**: File or directory excluded from normal pages, actions, and diagnostics.
+- **Hidden path**: File or directory excluded from normal enumeration (MarkdownFiles, search, palette, tree, backlinks, Dataview, diagnostics). Subtypes: dot-prefixed (always blocked for direct read/write), configured hidden (direct-URL addressable), trash (blocked for direct CRUD), template (direct-read/edit addressable and non-enumerated when `editing.hide_templates` is true).
 - **Embedded asset**: Template, CSS, or JS included in the Go binary with `//go:embed`.
 - **Command palette**: Keyboard-first browser navigation and action UI.
 - **Task ID**: Copyable task marker encoded as `<!-- tid:... -->` in Markdown.

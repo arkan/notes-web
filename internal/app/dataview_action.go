@@ -13,7 +13,7 @@ const actionRenderDataviewTable = "renderDataviewTable"
 // handleDataviewTableAction checks if the request is a Dataview table AJAX action
 // and if so, handles it and returns true. Otherwise returns false.
 //
-// This is called from within Server.path, after path resolution and hidden checks.
+// This is called from within Server.path, after path resolution and direct-read path policy checks.
 func (s *Server) handleDataviewTableAction(w http.ResponseWriter, r *http.Request, absPath string) bool {
 	action := r.URL.Query().Get("action")
 	if action == "" {

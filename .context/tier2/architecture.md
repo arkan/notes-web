@@ -26,8 +26,10 @@ Notes Web is a small Go web server, not a SPA. The core decision is to keep the 
 - `Vault.Root` is the absolute root boundary.
 - `ResolveURLPath` URL-decodes, joins under the root, canonicalizes, and rejects traversal.
 - `ReadNote` repeats the root-boundary check for direct rel/abs reads.
-- `HiddenRel` hides dot paths and configured `hidden` prefixes.
-- Folder listings, `MarkdownFiles`, favorites, quick-jump links, normal pages, and diagnostics should all respect hidden paths.
+- `isExcludedFromEnumeration` checks dot-blocked, configured-hidden, trash, and template paths.
+- `DirectReadAllowed` checks only dot-blocked and trash (configured hidden and template are direct-URL addressable).
+- Folder listings, `MarkdownFiles`, favorites, quick-jump links, normal pages, and diagnostics should all respect exclusion from enumeration.
+- Write API endpoints must use `DirectReadAllowed` and operation-specific authorization, never `isExcludedFromEnumeration` alone.
 
 ## Index and metadata model
 
@@ -79,4 +81,4 @@ Preprocess order is intentionally: Dataview -> notes-map -> callouts -> Mermaid 
 - Add new internal pages through `ServeHTTP` only after deciding whether they are public app routes or vault-local actions.
 - Add vault-derived features through `VaultIndex` when possible; document when a body walk is required.
 - Keep config as typed structs and explicit defaults; avoid generic maps for primary behavior.
-- When adding note-local AJAX, route it through normal auth/path/hidden checks before action handling.
+- When adding note-local AJAX, route it through normal auth, path resolution, and direct-read path policy checks before action handling.
