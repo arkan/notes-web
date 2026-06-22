@@ -1,0 +1,55 @@
+{{define "inbox"}}
+{{template "layout-start" .}}
+<section class="inbox-view reading-surface" data-inbox-context data-edit-csrf="{{.EditCSRFToken}}">
+  <header class="page-header inbox-header">
+    <div>
+      <p class="eyebrow">Capture workflow</p>
+      <h1>Inbox</h1>
+      <p class="inbox-summary">Process captured notes into the vault without leaving the workbench.</p>
+    </div>
+    <div class="inbox-header-actions">
+      <a class="btn" href="/">Capture on Home</a>
+      <button class="copy-link btn ghost" type="button" data-copy-path>Copy path</button>
+    </div>
+  </header>
+
+  <div class="edit-message inbox-message" data-inbox-message role="status" hidden></div>
+
+  <section class="inbox-overview card" aria-label="Inbox overview">
+    <span><strong data-inbox-count>{{.InboxCount}}</strong> current capture{{if ne .InboxCount 1}}s{{end}}</span>
+    {{with .ConvertTaskDisabledReason}}<small>Convert to task disabled: {{.Message}}</small>{{else}}<small>Convert to task is ready.</small>{{end}}
+  </section>
+
+  {{if not .InboxEntries}}
+    <div class="empty-state inbox-empty" data-inbox-empty><p>No Inbox captures. Use Quick capture on Home to add one.</p></div>
+  {{else}}
+    <div class="inbox-list" data-inbox-list aria-label="Inbox captures">
+      {{range $i, $entry := .InboxEntries}}
+        <article class="inbox-card" data-inbox-entry data-inbox-path="{{$entry.Path}}">
+          <div class="inbox-card-main">
+            <p class="eyebrow">Capture</p>
+            <h2><a href="{{$entry.URL}}">{{$entry.Title}}</a></h2>
+            <p class="inbox-excerpt">{{$entry.Excerpt}}</p>
+            <dl class="inbox-meta">
+              <div><dt>Captured</dt><dd>{{$entry.Captured}}</dd></div>
+              <div><dt>Path</dt><dd><small>{{$entry.Path}}</small></dd></div>
+            </dl>
+          </div>
+          <div class="inbox-actions" aria-label="Capture actions">
+            <a class="btn" href="{{$entry.URL}}">Open</a>
+            <button class="btn ghost" type="button" data-inbox-archive>Archive</button>
+            <button class="btn ghost" type="button" data-inbox-move>Move…</button>
+            {{with $.ConvertTaskDisabledReason}}
+              <button class="btn ghost" type="button" disabled aria-describedby="inbox-convert-disabled-{{$i}}">Convert to task</button>
+              <small id="inbox-convert-disabled-{{$i}}" class="inbox-action-reason">{{.Message}}</small>
+            {{else}}
+              <button class="btn primary" type="button" data-inbox-convert>Convert to task</button>
+            {{end}}
+          </div>
+        </article>
+      {{end}}
+    </div>
+  {{end}}
+</section>
+{{template "layout-end" .}}
+{{end}}

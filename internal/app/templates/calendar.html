@@ -1,0 +1,46 @@
+{{define "calendar"}}{{template "layout-start" .}}
+<section class="calendar-page" aria-label="Daily notes calendar">
+  <header class="calendar-page-header">
+    <div>
+      <p class="eyebrow">Calendar</p>
+      <h1>Daily notes</h1>
+      <p class="calendar-page-summary">A daily-notes-only month view for reading what exists, without creating events or changing the vault.</p>
+    </div>
+    <a class="btn ghost calendar-today-link" href="/_calendar?date={{.CalendarView.TodayDate}}">{{.CalendarView.TodayLabel}}</a>
+  </header>
+  <div class="calendar-workbench">
+    <section class="calendar-main" aria-labelledby="calendar-month-heading">
+      <nav class="calendar-month-nav" aria-label="Month navigation">
+        <a class="btn ghost calendar-month-step" href="{{.CalendarView.Calendar.PrevURL}}" aria-label="Previous month">← <span>Previous month</span></a>
+        <h2 id="calendar-month-heading" class="calendar-month-label">{{.CalendarView.Calendar.MonthLabel}}</h2>
+        <a class="btn ghost calendar-month-step" href="{{.CalendarView.Calendar.NextURL}}" aria-label="Next month"><span>Next month</span> →</a>
+      </nav>
+      <div class="calendar-month-grid" role="grid" aria-label="Daily notes calendar">
+        <div class="calendar-weekday-row" role="row">
+          <span role="columnheader">Mon</span><span role="columnheader">Tue</span><span role="columnheader">Wed</span><span role="columnheader">Thu</span><span role="columnheader">Fri</span><span role="columnheader">Sat</span><span role="columnheader">Sun</span>
+        </div>
+        {{range .CalendarView.Calendar.Weeks}}<div class="calendar-week" role="row">{{range .}}<a class="{{.Class}}" href="{{.URL}}" role="gridcell" aria-label="{{.Date}}{{if .HasNote}}, with daily note{{end}}"{{if .Selected}} aria-selected="true"{{end}}{{if .Today}} aria-current="date"{{end}}><span class="calendar-day-number">{{.Label}}</span>{{if .HasNote}}<span class="calendar-day-dot" aria-hidden="true"></span>{{end}}</a>{{end}}</div>{{end}}
+      </div>
+      <p class="calendar-grid-note"><span aria-hidden="true"></span> Blue dots mark existing daily notes.</p>
+    </section>
+    <aside class="calendar-sidebar" aria-labelledby="calendar-selected-heading">
+      <section class="card calendar-selected-panel">
+        <div class="calendar-selected-heading">
+          <p class="eyebrow">Selected day</p>
+          <h2 id="calendar-selected-heading">{{.CalendarView.Selected.Label}}</h2>
+          {{if .CalendarView.Selected.HasNote}}<span class="chip calendar-note-status">Daily note</span>{{else}}<span class="chip muted-chip calendar-note-status">No note</span>{{end}}
+        </div>
+        {{if .CalendarView.Selected.HasNote}}
+        <div class="calendar-note-preview content">
+          <h3><a href="{{url .CalendarView.Selected.Note.RelPath}}">{{.CalendarView.Selected.Doc.Title}}</a></h3>
+          {{safe .CalendarView.Selected.Doc.HTML}}
+        </div>
+        <a class="btn primary" href="{{url .CalendarView.Selected.Note.RelPath}}">Open full note</a>
+        {{else}}
+        <p class="empty-state">No daily note for this date.</p>
+        {{end}}
+      </section>
+    </aside>
+  </div>
+</section>
+{{template "layout-end" .}}{{end}}

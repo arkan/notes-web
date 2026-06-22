@@ -12,11 +12,16 @@ Notes Web is a small Go web server, not a SPA. The core decision is to keep the 
 
 ## Route families
 
-- `/` — homepage dashboard from `Vault.BuildDashboardFor` and `HomepageView`.
+- `/` — Modern Workbench Home daily cockpit from `Vault.BuildDashboardFor` and `HomepageView`.
+- `/_inbox` — Inbox capture processing, only when editing and Inbox path policy allow it.
 - `/_search` — search page using `Searcher`; empty query shows recent notes.
 - `/_api/palette` — JSON command-palette index built from favorites, notes, and tags.
 - `/_tags`, `/_tags/<tag>` — tag index/detail from `VaultIndex.Tags`.
 - `/_todo` — task board from Markdown task lines.
+- `/_projects` — read-only Projects overview sourced from indexed project notes.
+- `/_calendar` — daily-notes Calendar view using `daily_notes_glob`.
+- `/_maintenance` — grouped read-only diagnostics over existing diagnostic sources.
+- `/_trash` — dedicated Trash restore surface, only when editing is enabled.
 - `/_broken-links`, `/_orphans`, `/_dataview` — diagnostics over the index/scanners.
 - `/_resolve`, `/_missing` — wikilink ambiguity/missing-note pages.
 - Vault paths — folder listings, Markdown note pages, or non-Markdown files.
@@ -30,6 +35,8 @@ Notes Web is a small Go web server, not a SPA. The core decision is to keep the 
 - `DirectReadAllowed` checks only dot-blocked and trash (configured hidden and template are direct-URL addressable).
 - Folder listings, `MarkdownFiles`, favorites, quick-jump links, normal pages, and diagnostics should all respect exclusion from enumeration.
 - Write API endpoints must use `DirectReadAllowed` and operation-specific authorization, never `isExcludedFromEnumeration` alone.
+- Edit and Inbox write APIs live under `/_api/edit/*`; every write path requires editing enabled, CSRF, normalized vault-relative paths, symlink rejection, collision handling, and tests.
+- `_trash` is a dedicated subsystem; direct CRUD for trash paths remains blocked.
 
 ## Index and metadata model
 
@@ -37,7 +44,10 @@ Notes Web is a small Go web server, not a SPA. The core decision is to keep the 
 - Cache key is `rel path + modtime + size` for each Markdown file; there is no filesystem watcher.
 - `NoteMeta` carries rel path, URL, title, tags, frontmatter, outgoing wikilinks, outgoing occurrences, and mod time.
 - `BuildIndex` also builds tag buckets and Dataview inlinks.
-- Dashboards, tag pages, diagnostics, Dataview, and palette data should reuse the index rather than walking ad hoc unless they need note bodies.
+- Dashboards, tag pages, diagnostics, Dataview, Projects, Calendar, Maintenance, and palette data should reuse the index or established helpers rather than walking ad hoc unless they need note bodies.
+- Projects reuses active-project/index semantics; client filtering is display-only.
+- Calendar is daily-notes-focused and should not drift into event-calendar behavior.
+- Maintenance aggregates counts/status/links from existing diagnostics; it should not introduce unreviewed scans.
 
 ## Markdown rendering pipeline
 
@@ -67,13 +77,18 @@ Preprocess order is intentionally: Dataview -> notes-map -> callouts -> Mermaid 
 ## Major source map
 
 - `app.go` — server, routes, vault basics, folders, files, CLI.
-- `config.go` — `.notes-web.yaml`, homepage block config, favorites, quick-jump resolution.
+- `config.go` — `.notes-web.yaml`, homepage block config, favorites, quick-jump resolution, editing/todo config.
 - `dashboard.go` — homepage data, task board, broken/orphan diagnostics.
+- `homepage.go` — configurable Home cockpit model.
 - `index.go` — `VaultIndex`, tags, outgoing/incoming link data.
 - `links.go` — wikilink parsing and forward/backlink contexts.
 - `render_search.go` — Markdown renderer, HTML normalization, search.
 - `map.go` — fenced `notes-map` blocks and map payloads.
 - `dataview*.go` — Dataview parser, evaluator, renderer, AJAX action, scanner, filters.
+- `edit_*.go` — edit-mode CRUD, Inbox, Trash, rename/rewrite, write policy.
+- `projects.go` — Projects page read model.
+- `calendar.go` — daily-note Calendar page read model.
+- `maintenance.go` — Maintenance page aggregation.
 - `ui.go`, `templates/`, `static/` — embedded UI.
 
 ## Extension seams to respect

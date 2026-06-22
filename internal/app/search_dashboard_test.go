@@ -184,7 +184,7 @@ func TestReadingSettingsLiveInSidebarModalAndFocusUsesShortcut(t *testing.T) {
 		`data-font-size-select`,
 		`Keyboard shortcuts`,
 		`⌘/Ctrl B`,
-		`Toggle sidebar`,
+		`Toggle reading focus`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing settings/modal markup %q in:\n%s", want, body)

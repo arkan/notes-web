@@ -58,6 +58,19 @@ async function clickHeaderAction(page: Page, name: string): Promise<void> {
   await menu.getByRole("menuitem", { name, exact: true }).click();
 }
 
+async function createInboxCapture(page: Page, baseURL: string, title: string, body = "Captured body."): Promise<string> {
+  await page.goto(`${baseURL}/`);
+  const input = page.locator("[data-quick-capture-input]");
+  await expect(input).toBeVisible();
+  await input.fill(`${title}\n${body}`);
+  await input.press("Control+Enter");
+  const message = page.locator("[data-quick-capture-message]");
+  await expect(message).toContainText("Saved to Inbox");
+  const href = await message.locator("a").getAttribute("href");
+  if (!href) throw new Error("capture link was not rendered");
+  return href;
+}
+
 test.describe.serial("Edit mode CRUD", () => {
   let baseURL = "";
   let serverProcess: ChildProcessWithoutNullStreams | undefined;
@@ -69,7 +82,8 @@ test.describe.serial("Edit mode CRUD", () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), "notes-web-edit-mode-"));
     vaultDir = path.join(tempRoot, "vault");
     await cp(path.join(repoRoot, "testdata/e2e-vault"), vaultDir, { recursive: true });
-    await writeFile(path.join(vaultDir, ".notes-web.yaml"), "editing:\n  enabled: true\n  trash_path: _trash\n  template_name: _template.md\n  hide_templates: true\n  slug: kebab_lowercase\n", "utf8");
+    await writeFile(path.join(vaultDir, ".notes-web.yaml"), "editing:\n  enabled: true\n  trash_path: _trash\n  template_name: _template.md\n  hide_templates: true\n  slug: kebab_lowercase\ntodo:\n  todo_file: Tasks/Inbox.md\n", "utf8");
+    await writeFile(path.join(vaultDir, "Tasks", "Inbox.md"), "# Inbox tasks\n", "utf8");
     await writeFile(path.join(vaultDir, "Syntax", "_template.md"), "# {{title}}\n\nPath: {{path}}\nDate: {{date}}\n", "utf8");
     await writeFile(path.join(vaultDir, "Syntax", "Edit Mode Fixture.md"), "# Edit Mode Fixture\n\nOriginal text.\n", "utf8");
     await writeFile(path.join(vaultDir, "Syntax", "Conflict Fixture.md"), "# Conflict Fixture\n\nOriginal conflict text.\n", "utf8");
@@ -384,11 +398,135 @@ test.describe.serial("Edit mode CRUD", () => {
 
   test("opens Trash from the command palette action", async ({ page }) => {
     await page.goto(`${baseURL}/Syntax/Edit%20Mode%20Fixture.md`);
+    const appNav = page.locator('nav[aria-label="App navigation"]');
+    const hrefs = await appNav.locator("a").evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+    expect(hrefs).toEqual(["/", "/_inbox", "/_todo", "/_projects", "/_calendar", "/_search", "/_tags", "/_maintenance", "/_trash"]);
     await page.getByLabel("Open command palette").click();
     await page.locator("[data-palette-input]").fill("Open Trash");
     const action = page.locator("[data-palette-index]").filter({ hasText: "Open Trash" }).first();
     await expect(action).toBeVisible();
     await action.click();
     await expect(page).toHaveURL(`${baseURL}/_trash`);
+  });
+
+  test("captures from Home and lists the Inbox item", async ({ page }) => {
+    const title = `UI Capture ${Date.now()}`;
+    const href = await createInboxCapture(page, baseURL, title, "Remember this from the browser test.");
+
+    await page.goto(`${baseURL}/_inbox`);
+    await expect(page.locator('nav[aria-label="App navigation"] a[href="/_inbox"]')).toHaveAttribute("aria-current", "page");
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+    await expect(card.locator("h2")).toContainText(title);
+    await expect(card.getByRole("link", { name: /open/i }).first()).toHaveAttribute("href", href);
+  });
+
+  test("archives an Inbox capture from the list", async ({ page }) => {
+    const title = `Archive Capture ${Date.now()}`;
+    await createInboxCapture(page, baseURL, title);
+    await page.goto(`${baseURL}/_inbox`);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+
+    await card.getByRole("button", { name: "Archive" }).click();
+    await expect(card).toBeHidden();
+    await expect(page.locator("[data-inbox-message]")).toContainText("Archived");
+  });
+
+  test("moves an Inbox capture with missing-folder confirmation", async ({ page }) => {
+    const title = `Move Capture ${Date.now()}`;
+    const targetPath = `Projects/Captured/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.md`;
+    await createInboxCapture(page, baseURL, title);
+    await page.goto(`${baseURL}/_inbox`);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+
+    await card.getByRole("button", { name: "Move…" }).click();
+    const modal = page.locator(".edit-modal-panel");
+    await expect(modal).toBeVisible();
+    await modal.locator('input[name="inbox-move-target"]').fill(targetPath);
+    await modal.getByRole("button", { name: "Move capture" }).click();
+    await expect(modal.locator("[data-edit-modal-message]")).toContainText("Confirmation needed");
+    await modal.getByRole("button", { name: "Continue" }).click();
+
+    await expect(page).toHaveURL(`${baseURL}/${targetPath}`);
+    await expect(page.locator("article.note .content")).toContainText(title);
+  });
+
+  test("converts an Inbox capture to a task and archives it", async ({ page }) => {
+    const title = `Convert Capture ${Date.now()}`;
+    await createInboxCapture(page, baseURL, title);
+    await page.goto(`${baseURL}/_inbox`);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+
+    await card.getByRole("button", { name: "Convert to task" }).click();
+    await expect(card).toBeHidden();
+    await expect(page.locator("[data-inbox-message]")).toContainText("Task added");
+
+    const tasks = await readFile(path.join(vaultDir, "Tasks", "Inbox.md"), "utf8");
+    expect(tasks).toContain(`- [ ] ${title} 📥 [[Inbox/Archive/`);
+  });
+
+  test("convert warning keeps Inbox capture actions usable", async ({ page }) => {
+    const title = `Warning Capture ${Date.now()}`;
+    await createInboxCapture(page, baseURL, title);
+    await page.goto(`${baseURL}/_inbox`);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+
+    await page.route("**/_api/edit/inbox/convert-task", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "task_written_archive_failed", message: "Task was written, but archive failed.", task_file: "Tasks/Inbox.md" }),
+      });
+    });
+    await card.getByRole("button", { name: "Convert to task" }).click();
+    await expect(page.locator("[data-inbox-message]")).toContainText("Task written with warning");
+    await expect(card.getByRole("button", { name: "Archive" })).toBeEnabled();
+    await expect(card.getByRole("button", { name: "Move…" })).toBeEnabled();
+    await expect(card.getByRole("button", { name: "Convert to task" })).toBeEnabled();
+  });
+
+  test("mobile Inbox keeps capture actions usable without overflow", async ({ page }) => {
+    const title = `Mobile Capture ${Date.now()}`;
+    await createInboxCapture(page, baseURL, title);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${baseURL}/_inbox`);
+
+    const metrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card.getByRole("link", { name: "Open" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Archive" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Move…" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Convert to task" })).toBeVisible();
+  });
+
+  test("narrow desktop Inbox collapses cards before tri-pane gets cramped", async ({ page }) => {
+    const title = `Narrow Capture ${Date.now()}`;
+    await createInboxCapture(page, baseURL, title);
+    await page.setViewportSize({ width: 1121, height: 820 });
+    await page.goto(`${baseURL}/_inbox`);
+    const card = page.locator("[data-inbox-entry]").filter({ hasText: title });
+    await expect(card).toBeVisible();
+    const metrics = await card.evaluate((el) => {
+      const cardStyle = getComputedStyle(el as HTMLElement);
+      const actions = (el as HTMLElement).querySelector<HTMLElement>(".inbox-actions");
+      return {
+        columns: cardStyle.gridTemplateColumns.split(" ").length,
+        actionsLeft: actions?.getBoundingClientRect().left ?? 0,
+        cardLeft: (el as HTMLElement).getBoundingClientRect().left,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(metrics.columns).toBe(1);
+    expect(Math.abs(metrics.actionsLeft - metrics.cardLeft)).toBeLessThanOrEqual(24);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
   });
 });

@@ -1,17 +1,26 @@
 
+const densityStorageKey = 'notes-web:density';
+const paletteRecentStorageKey = 'notes-web:palette-recent';
 const paletteShortcutClass = 'palette-shortcuts';
 const sidebarStorageKey = 'notes-web:sidebar-open';
 const panelStateStorageKey = 'notes-web:panel-open';
 const themeStorageKey = 'notes-web:theme';
 const fontSizeStorageKey = 'notes-web:font-size';
 const readingFocusStorageKey = 'notes-web:reading-focus';
+const rightPaneStorageKey = 'notes-web:right-pane-open';
 const todoFilterStorageKey = 'notes-web:todo-filters';
 function applyInitialPreferences() {
   try {
     applyTheme(localStorage.getItem(themeStorageKey) || 'auto');
     applyFontSize(localStorage.getItem(fontSizeStorageKey) || 'normal');
     applyReadingFocus(localStorage.getItem(readingFocusStorageKey) === 'true');
+    applyRightPanePreference(readRightPanePreference());
+    applyDensity(localStorage.getItem(densityStorageKey) || 'compact');
   } catch {}
+}
+function applyDensity(density) {
+  if (!density || density === 'compact') document.documentElement.removeAttribute('data-density');
+  else document.documentElement.dataset.density = density;
 }
 function applyTheme(theme) {
   if (!theme || theme === 'auto') document.documentElement.removeAttribute('data-theme');
@@ -27,6 +36,16 @@ function initThemePicker() {
     applyTheme(select.value);
   });
 }
+function initDensityPicker() {
+  const select = document.querySelector('[data-density-select]');
+  const saved = localStorage.getItem(densityStorageKey) || 'compact';
+  applyDensity(saved);
+  if (select) select.value = saved;
+  select?.addEventListener('change', () => {
+    localStorage.setItem(densityStorageKey, select.value);
+    applyDensity(select.value);
+  });
+}
 
 let paletteItems = [];
 let paletteMatches = [];
@@ -34,6 +53,27 @@ let paletteSelectedIndex = 0;
 let paletteLoadPromise = null;
 let paletteLoadError = false;
 let paletteLoaded = false;
+let paletteReturnFocus = null;
+let settingsReturnFocus = null;
+let dataviewIgnoreScrollClose = false;
+let todoMenuOpenedAt = 0;
+function setModalIsolation(active) {
+  document.querySelectorAll('.side,.workbench-center,.context-pane,[data-sidebar-toggle],[data-palette-open],.settings-fab').forEach((el) => {
+    if (active) {
+      el.dataset.modalIsolated = 'true';
+      el.setAttribute('aria-hidden', 'true');
+      el.inert = true;
+    } else if (el.dataset.modalIsolated === 'true') {
+      delete el.dataset.modalIsolated;
+      el.inert = false;
+      el.removeAttribute('aria-hidden');
+    }
+  });
+  if (!active) {
+    setSidebarA11y(document.body.classList.contains('sidebar-open'));
+    setRightPaneOpen?.(readRightPanePreference(), {persist: false});
+  }
+}
 function loadPaletteItems() {
   if (paletteItems.length) return Promise.resolve(paletteItems);
   if (paletteLoadPromise) return paletteLoadPromise;
@@ -61,14 +101,23 @@ function openPalette() {
   const palette = document.querySelector('[data-palette]');
   const input = document.querySelector('[data-palette-input]');
   if (!palette || !input) return;
+  paletteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   palette.hidden = false;
+  setModalIsolation(true);
+  document.querySelectorAll('[data-palette-open]').forEach((button) => button.setAttribute('aria-expanded', 'true'));
   renderPalette(input.value);
   loadPaletteItems().then(() => renderPalette(input.value)).catch(() => renderPalette(input.value));
   setTimeout(() => { input.focus(); input.select(); }, 0);
 }
-function closePalette() {
+function closePalette(options = {}) {
   const palette = document.querySelector('[data-palette]');
   if (palette) palette.hidden = true;
+  document.querySelectorAll('[data-palette-open]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  setModalIsolation(false);
+  if (options.returnFocus && paletteReturnFocus && typeof paletteReturnFocus.focus === 'function') {
+    paletteReturnFocus.focus();
+  }
+  paletteReturnFocus = null;
 }
 function setActivePaletteIndex(index) {
   paletteSelectedIndex = Math.max(0, Math.min(index, Math.max(0, paletteMatches.length - 1)));
@@ -77,6 +126,9 @@ function setActivePaletteIndex(index) {
     button.classList.toggle('is-selected', selected);
     button.setAttribute('aria-selected', String(selected));
   });
+  const input = document.querySelector('[data-palette-input]');
+  if (input && paletteMatches.length) input.setAttribute('aria-activedescendant', 'palette-option-' + paletteSelectedIndex);
+  else input?.removeAttribute('aria-activedescendant');
 }
 function renderPalette(query) {
   const results = document.querySelector('[data-palette-results]');
@@ -92,15 +144,103 @@ function renderPalette(query) {
   results.setAttribute('aria-busy', 'false');
   const q = (query || '').trim().toLowerCase();
   const allItems = paletteItems.concat(actionItems);
-  paletteMatches = allItems.filter((item) => {
+  const matches = allItems.filter((item) => {
     const haystack = [item.title, item.path, item.kind].filter(Boolean).join(' ').toLowerCase();
     return !q || haystack.includes(q);
-  }).slice(0, 30);
+  });
+  // On empty query, prepend recent items that still exist in the current
+  // server-backed palette payload. localStorage is treated as untrusted cache.
+  if (!q) {
+    const recents = readCurrentPaletteRecents();
+    const maxRecentVisible = window.matchMedia('(max-width: 640px)').matches ? 4 : 8;
+    const visibleRecents = recents.slice(0, maxRecentVisible);
+    const recentURLs = new Set(visibleRecents.map((item) => item.url));
+    const nonRecentMatches = matches.filter((item) => !item.url || !recentURLs.has(item.url));
+    paletteMatches = visibleRecents.length > 0 ? [...visibleRecents, ...nonRecentMatches] : matches;
+    paletteMatches = paletteMatches.slice(0, 30);
+  } else {
+    paletteMatches = matches.slice(0, 30);
+  }
   if (paletteSelectedIndex >= paletteMatches.length) paletteSelectedIndex = 0;
-  results.innerHTML = paletteMatches.map((item, index) => '<button type="button" role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title || item.path || item.url || 'Untitled') + '</strong><small>' + escapeHTML(item.path || item.url || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind || 'item') + '</span></button>').join('') || renderPaletteState('empty', 'No results.', 'Try a note title, tag, or favorite.');
+  const recentCount = !q ? Math.min(readCurrentPaletteRecents().length, window.matchMedia('(max-width: 640px)').matches ? 4 : 8, paletteMatches.length) : 0;
+  let html = '';
+  if (recentCount > 0 && paletteMatches.length > 0) {
+    html += '<div class="palette-recent-header" role="presentation" aria-hidden="true">Recent</div>';
+    html += paletteMatches.slice(0, recentCount).map((item, index) => renderPaletteItem(item, index)).join('');
+    if (recentCount < paletteMatches.length) {
+      html += '<div class="palette-recent-divider" role="presentation" aria-hidden="true"></div>';
+      html += paletteMatches.slice(recentCount).map((item, index) => renderPaletteItem(item, recentCount + index)).join('');
+    }
+  } else {
+    html = paletteMatches.map((item, index) => renderPaletteItem(item, index)).join('');
+  }
+  results.innerHTML = html || renderPaletteState('empty', 'No results.', 'Try a note title, tag, or favorite.');
+  const input = document.querySelector('[data-palette-input]');
+  if (input && paletteMatches.length) input.setAttribute('aria-activedescendant', 'palette-option-' + paletteSelectedIndex);
+  else input?.removeAttribute('aria-activedescendant');
 }
 function renderPaletteState(kind, title, detail) {
   return '<div class="palette-empty empty-state palette-state palette-state-' + kind + '" role="status"><strong>' + escapeHTML(title) + '</strong><small>' + escapeHTML(detail) + '</small><span class="palette-state-rule" aria-hidden="true"></span></div>';
+}
+function renderPaletteItem(item, index) {
+  return '<button id="palette-option-' + index + '" type="button" role="option" aria-selected="' + (index === paletteSelectedIndex) + '" class="palette-item' + (index === paletteSelectedIndex ? ' is-selected' : '') + '" data-palette-index="' + index + '"><strong>' + escapeHTML(item.title || item.path || item.url || 'Untitled') + '</strong><small>' + escapeHTML(item.path || item.url || '') + '</small><span class="chip palette-kind">' + escapeHTML(item.kind || 'item') + '</span></button>';
+}
+function readPaletteRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(paletteRecentStorageKey) || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => {
+      if (!item || typeof item !== 'object' || typeof item.url !== 'string' || !item.url) return null;
+      return {
+        title: typeof item.title === 'string' ? item.title : '',
+        url: item.url,
+        path: typeof item.path === 'string' ? item.path : '',
+        kind: typeof item.kind === 'string' ? item.kind : 'recent',
+      };
+    }).filter(Boolean).slice(0, 8);
+  } catch { return []; }
+}
+function currentServerPaletteByURL() {
+  const byURL = new Map();
+  paletteItems.forEach((item) => {
+    if (!item || typeof item.url !== 'string' || !item.url.startsWith('/') || item.url.startsWith('//')) return;
+    byURL.set(item.url, item);
+  });
+  return byURL;
+}
+function readCurrentPaletteRecents() {
+  const byURL = currentServerPaletteByURL();
+  const stored = readPaletteRecents();
+  const current = stored.map((item) => byURL.get(item.url)).filter(Boolean).slice(0, 8);
+  if (current.length !== stored.length || current.some((item, index) => item.url !== stored[index]?.url || item.title !== stored[index]?.title || item.path !== stored[index]?.path || item.kind !== stored[index]?.kind)) {
+    writePaletteRecents(current);
+  }
+  return current;
+}
+function writePaletteRecents(recents) {
+  try { localStorage.setItem(paletteRecentStorageKey, JSON.stringify(recents.slice(0, 8))); } catch {}
+}
+function recordPaletteRecent(item) {
+  if (!item || !item.url) return;
+  const serverItem = currentServerPaletteByURL().get(item.url);
+  if (!serverItem) return;
+  const recents = readPaletteRecents();
+  const filtered = recents.filter(r => r.url !== serverItem.url);
+  filtered.unshift({title: serverItem.title, url: serverItem.url, path: serverItem.path, kind: serverItem.kind});
+  writePaletteRecents(filtered);
+  updatePaletteRecentStatus();
+}
+function updatePaletteRecentStatus() {
+  const status = document.querySelector('[data-palette-recent-status]');
+  if (!status) return;
+  const recents = readPaletteRecents();
+  status.textContent = recents.length + ' item' + (recents.length !== 1 ? 's' : '');
+}
+function clearPaletteRecents() {
+  writePaletteRecents([]);
+  updatePaletteRecentStatus();
+  const input = document.querySelector('[data-palette-input]');
+  if (input) renderPalette(input.value);
 }
 function openPaletteMatch(index) {
   const item = paletteMatches[index];
@@ -110,7 +250,38 @@ function openPaletteMatch(index) {
     item.action();
     return;
   }
-  if (item.url) location.assign(item.url);
+  if (item.url) {
+    recordPaletteRecent(item);
+    location.assign(item.url);
+  }
+}
+function paletteIsOpen() {
+  const palette = document.querySelector('[data-palette]');
+  return Boolean(palette && !palette.hidden);
+}
+function paletteFocusableElements() {
+  const palette = document.querySelector('[data-palette]');
+  if (!palette || palette.hidden) return [];
+  return Array.from(palette.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter((el) => !el.disabled && el.offsetParent !== null);
+}
+function trapPaletteFocus(ev) {
+  if (!paletteIsOpen() || ev.key !== 'Tab') return;
+  const focusable = paletteFocusableElements();
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!document.querySelector('[data-palette]')?.contains(document.activeElement)) {
+    ev.preventDefault();
+    first.focus();
+    return;
+  }
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+  } else if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
+  }
 }
 function currentPaletteEditContext() {
   return document.querySelector('[data-edit-surface][data-edit-csrf]') || document.querySelector('[data-edit-context][data-edit-csrf]') || document.querySelector('[data-trash-context][data-edit-csrf]') || document.querySelector('[data-global-edit-context][data-edit-csrf]');
@@ -153,7 +324,7 @@ function escapeHTML(value) {
 }
 function initCommandPalette() {
   document.querySelector('[data-palette-open]')?.addEventListener('click', openPalette);
-  document.querySelector('[data-palette]')?.addEventListener('click', (ev) => { if (ev.target.matches('[data-palette]')) closePalette(); });
+  document.querySelector('[data-palette]')?.addEventListener('click', (ev) => { if (ev.target.matches('[data-palette]')) closePalette({returnFocus: true}); });
   const results = document.querySelector('[data-palette-results]');
   results?.addEventListener('click', (ev) => {
     const button = ev.target.closest('[data-palette-index]');
@@ -177,7 +348,11 @@ function initCommandPalette() {
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); openPalette(); }
     else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'b') { ev.preventDefault(); toggleReadingFocus(); }
     else if (ev.key === '/' && !inField) { ev.preventDefault(); openPalette(); }
-    else if (ev.key === 'Escape') { closePalette(); closeSettingsModal(); }
+    else if (ev.key === 'Escape' && paletteIsOpen()) { ev.preventDefault(); closePalette({returnFocus: true}); }
+    else if (ev.key === 'Escape' && settingsIsOpen()) { ev.preventDefault(); closeSettingsModal({returnFocus: true}); }
+    else if (ev.key === 'Escape') { closeSettingsModal(); }
+    else if (settingsIsOpen()) trapSettingsFocus(ev);
+    else trapPaletteFocus(ev);
   });
 }
 
@@ -187,13 +362,82 @@ function applyFontSize(size) {
   else document.documentElement.dataset.fontSize = normalized;
 }
 function applyReadingFocus(enabled) {
-  document.documentElement.dataset.readingFocus = String(Boolean(enabled));
-  document.body?.classList.toggle('reading-focus', Boolean(enabled));
+  const on = Boolean(enabled);
+  if (on) document.documentElement.dataset.readingFocus = 'true';
+  else document.documentElement.removeAttribute('data-reading-focus');
+  document.body?.classList.toggle('reading-focus', on);
+  syncReadingFocusSelect(on);
+}
+function syncReadingFocusSelect(enabled = document.documentElement.dataset.readingFocus === 'true') {
+  const rfSelect = document.querySelector('[data-reading-focus-select]');
+  if (rfSelect) rfSelect.value = enabled ? 'on' : 'off';
 }
 function toggleReadingFocus() {
   const enabled = !document.body.classList.contains('reading-focus');
   localStorage.setItem(readingFocusStorageKey, String(enabled));
   applyReadingFocus(enabled);
+}
+function readRightPanePreference() {
+  try {
+    const value = localStorage.getItem(rightPaneStorageKey);
+    if (value === null) return true;
+    return value !== 'false';
+  } catch { return true; }
+}
+function writeRightPanePreference(open) {
+  try { localStorage.setItem(rightPaneStorageKey, String(Boolean(open))); }
+  catch {}
+}
+function isDesktopRightPaneLayout() {
+  return window.matchMedia?.('(min-width: 1121px)').matches ?? true;
+}
+function applyRightPanePreference(open) {
+  document.documentElement.dataset.rightPaneOpen = String(Boolean(open));
+  document.body?.classList.toggle('right-pane-collapsed', !open);
+}
+function syncRightPaneSelect(open) {
+  const select = document.querySelector('[data-right-pane-select]');
+  if (select) select.value = open ? 'open' : 'closed';
+}
+function setRightPaneOpen(open, options = {}) {
+  const preferredOpen = Boolean(open);
+  const desktop = isDesktopRightPaneLayout();
+  const visible = desktop && preferredOpen;
+  const pane = document.querySelector('[data-context-pane]');
+  const shell = document.querySelector('[data-workbench-shell]');
+  const primaryToggle = document.querySelector('[data-right-pane-toggle-primary]') || document.querySelector('[data-right-pane-toggle]');
+  const focusWasInside = Boolean(pane && pane.contains(document.activeElement));
+  applyRightPanePreference(preferredOpen);
+  shell?.classList.toggle('right-pane-collapsed', !visible);
+  document.body?.classList.toggle('right-pane-collapsed', !visible);
+  if (pane) {
+    pane.hidden = !visible;
+    pane.toggleAttribute('inert', !visible);
+    if (visible) pane.removeAttribute('aria-hidden');
+    else pane.setAttribute('aria-hidden', 'true');
+  }
+  document.querySelectorAll('[data-right-pane-toggle]').forEach((button) => {
+    button.setAttribute('aria-expanded', String(visible));
+    button.setAttribute('aria-label', visible ? 'Hide context pane' : 'Show context pane');
+  });
+  syncRightPaneSelect(preferredOpen);
+  if (options.persist) writeRightPanePreference(preferredOpen);
+  if (!visible && focusWasInside && primaryToggle && typeof primaryToggle.focus === 'function') {
+    primaryToggle.focus();
+  }
+}
+function initRightPaneControls() {
+  setRightPaneOpen(readRightPanePreference(), {persist: false});
+  document.querySelectorAll('[data-right-pane-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const currentlyOpen = button.getAttribute('aria-expanded') === 'true';
+      setRightPaneOpen(!currentlyOpen, {persist: true});
+    });
+  });
+  document.querySelector('[data-right-pane-select]')?.addEventListener('change', (ev) => {
+    setRightPaneOpen(ev.target.value !== 'closed', {persist: true});
+  });
+  window.addEventListener('resize', () => setRightPaneOpen(readRightPanePreference(), {persist: false}));
 }
 function initReadingControls() {
   const fontSelect = document.querySelector('[data-font-size-select]');
@@ -205,20 +449,67 @@ function initReadingControls() {
     applyFontSize(fontSelect.value);
   });
   applyReadingFocus(localStorage.getItem(readingFocusStorageKey) === 'true');
+  const rfSelect = document.querySelector('[data-reading-focus-select]');
+  syncReadingFocusSelect(localStorage.getItem(readingFocusStorageKey) === 'true');
+  rfSelect?.addEventListener('change', () => {
+    const enabled = rfSelect.value === 'on';
+    localStorage.setItem(readingFocusStorageKey, String(enabled));
+    applyReadingFocus(enabled);
+  });
+  initDensityPicker();
 }
 function openSettingsModal() {
   const modal = document.querySelector('[data-settings-modal]');
   if (!modal) return;
+  settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   modal.hidden = false;
+  setModalIsolation(true);
+  syncReadingFocusSelect();
+  updatePaletteRecentStatus();
   setTimeout(() => modal.querySelector('select,button')?.focus(), 0);
 }
-function closeSettingsModal() {
+function closeSettingsModal(options = {}) {
   const modal = document.querySelector('[data-settings-modal]');
   if (modal) modal.hidden = true;
+  setModalIsolation(false);
+  if (options.returnFocus && settingsReturnFocus && typeof settingsReturnFocus.focus === 'function') settingsReturnFocus.focus();
+  settingsReturnFocus = null;
 }
 function initSettingsModal() {
   document.querySelectorAll('[data-settings-open]').forEach((el) => el.addEventListener('click', openSettingsModal));
-  document.querySelectorAll('[data-settings-close]').forEach((el) => el.addEventListener('click', closeSettingsModal));
+  document.querySelectorAll('[data-settings-close]').forEach((el) => el.addEventListener('click', () => closeSettingsModal({returnFocus: true})));
+  document.querySelector('[data-palette-recent-clear]')?.addEventListener('click', clearPaletteRecents);
+}
+
+function settingsIsOpen() {
+  const modal = document.querySelector('[data-settings-modal]');
+  return Boolean(modal && !modal.hidden);
+}
+
+function settingsFocusableElements() {
+  const modal = document.querySelector('[data-settings-modal]');
+  if (!modal || modal.hidden) return [];
+  return Array.from(modal.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+function trapSettingsFocus(ev) {
+  if (!settingsIsOpen() || ev.key !== 'Tab') return;
+  const focusable = settingsFocusableElements();
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!document.querySelector('[data-settings-modal]')?.contains(document.activeElement)) {
+    ev.preventDefault();
+    first.focus();
+    return;
+  }
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+  } else if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
+  }
 }
 
 function readSidebarState() {
@@ -257,7 +548,7 @@ function restorePanelState() {
   document.querySelectorAll('details[data-panel-state]').forEach((details) => {
     const key = details.dataset.panelState;
     if (!key) return;
-    if (Object.prototype.hasOwnProperty.call(state, key)) details.open = Boolean(state[key]);
+    if (Object.hasOwn(state, key)) details.open = Boolean(state[key]);
     details.addEventListener('toggle', () => {
       const current = readPanelState();
       current[key] = details.open;
@@ -266,13 +557,26 @@ function restorePanelState() {
   });
 }
 
+function isMobileSidebarLayout() {
+  return window.matchMedia?.('(max-width: 1120px)').matches ?? false;
+}
+function setSidebarA11y(open) {
+  const side = document.querySelector('.side');
+  if (!side) return;
+  const shouldHide = isMobileSidebarLayout() && !open;
+  side.toggleAttribute('inert', shouldHide);
+  if (shouldHide) side.setAttribute('aria-hidden', 'true');
+  else side.removeAttribute('aria-hidden');
+}
 function openSidebar() {
   document.body.classList.add('sidebar-open');
   document.querySelector('[data-sidebar-toggle]')?.setAttribute('aria-expanded', 'true');
+  setSidebarA11y(true);
 }
 function closeSidebar() {
   document.body.classList.remove('sidebar-open');
   document.querySelector('[data-sidebar-toggle]')?.setAttribute('aria-expanded', 'false');
+  setSidebarA11y(false);
 }
 function initMobileSidebar() {
   const toggle = document.querySelector('[data-sidebar-toggle]');
@@ -289,6 +593,8 @@ function initMobileSidebar() {
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeSidebar();
   });
+  setSidebarA11y(document.body.classList.contains('sidebar-open'));
+  window.addEventListener('resize', () => setSidebarA11y(document.body.classList.contains('sidebar-open')));
 }
 
 function resetNoteActionsMenu(menu) {
@@ -369,11 +675,11 @@ function initNoteActionMenus() {
       }
       return;
     }
-    if (!menu) return;
-    if (ev.key === 'Tab') {
+    if (ev.key === 'Tab' && document.querySelector('[data-note-actions-toggle][aria-expanded="true"]')) {
       closeNoteActionMenus();
       return;
     }
+    if (!menu) return;
     if (ev.key === 'ArrowDown') { ev.preventDefault(); moveNoteActionFocus(menu, 1); }
     else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveNoteActionFocus(menu, -1); }
   });
@@ -435,6 +741,252 @@ function initHomepageProjectFilter() {
   });
 }
 
+function initProjectFilter() {
+  document.querySelectorAll('[data-project-filter]').forEach((input) => {
+    const page = input.closest('[data-projects-page]') || document;
+    const cards = Array.from(page.querySelectorAll('[data-project-card]'));
+    const empty = page.querySelector('[data-project-filter-empty]');
+    const count = page.querySelector('[data-project-filter-count]');
+    const apply = () => {
+      const q = (input.value || '').trim().toLowerCase();
+      let visibleCount = 0;
+      cards.forEach((card) => {
+        const haystack = (card.dataset.projectSearchText || card.textContent || '').toLowerCase();
+        const visible = !q || haystack.includes(q);
+        card.hidden = !visible;
+        if (visible) visibleCount++;
+      });
+      if (empty) empty.hidden = !q || visibleCount > 0;
+      if (count) count.textContent = visibleCount + ' project' + (visibleCount === 1 ? '' : 's') + ' shown';
+    };
+    input.addEventListener('input', apply);
+    apply();
+  });
+}
+
+function capturePartsFromText(value) {
+  const normalized = String(value || '').replace(/\r\n?/g, '\n');
+  const lines = normalized.split('\n');
+  return {
+    title: (lines.shift() || '').trim(),
+    body: lines.join('\n'),
+  };
+}
+
+function setInlineActionMessage(message, kind, title, detail, link) {
+  if (!message) return;
+  message.hidden = false;
+  message.className = 'edit-message edit-message-' + kind + (message.dataset.quickCaptureMessage !== undefined ? ' home-quick-capture-message' : message.dataset.inboxMessage !== undefined ? ' inbox-message' : '');
+  message.replaceChildren();
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  message.appendChild(strong);
+  if (detail) {
+    const p = document.createElement('p');
+    p.textContent = detail;
+    message.appendChild(p);
+  }
+  if (link?.href) {
+    const row = document.createElement('div');
+    row.className = 'edit-message-actions';
+    const a = document.createElement('a');
+    a.className = 'btn ghost';
+    a.href = link.href;
+    a.textContent = link.label || 'Open';
+    row.appendChild(a);
+    message.appendChild(row);
+  }
+}
+
+function setQuickCaptureBusy(form, busy) {
+  form?.setAttribute('aria-busy', String(Boolean(busy)));
+  form?.querySelectorAll('button,textarea').forEach((el) => { el.disabled = Boolean(busy); });
+}
+
+async function submitQuickCapture(form) {
+  const shell = form.closest('[data-quick-capture]');
+  const csrf = shell?.dataset.editCsrf || '';
+  const input = form.querySelector('[data-quick-capture-input]');
+  const message = form.querySelector('[data-quick-capture-message]');
+  const parts = capturePartsFromText(input?.value || '');
+  if (!parts.title) {
+    setInlineActionMessage(message, 'error', 'Title required', 'Put the capture title on the first line.');
+    input?.focus();
+    return;
+  }
+  setQuickCaptureBusy(form, true);
+  try {
+    const data = await editJSONRequest({csrf}, '/_api/edit/capture', 'POST', {title: parts.title, body: parts.body});
+    if (input) input.value = '';
+    setInlineActionMessage(message, 'success', 'Saved to Inbox', data.path || parts.title, {href: data.url, label: 'Open capture'});
+  } catch (err) {
+    setInlineActionMessage(message, 'error', 'Capture failed', editErrorText(err));
+  } finally {
+    setQuickCaptureBusy(form, false);
+  }
+}
+
+function initQuickCapture() {
+  document.querySelectorAll('[data-quick-capture-form]').forEach((form) => {
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      submitQuickCapture(form);
+    });
+    form.querySelector('[data-quick-capture-input]')?.addEventListener('keydown', (ev) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+        ev.preventDefault();
+        form.requestSubmit?.();
+      }
+    });
+  });
+}
+
+function inboxContextFor(el) {
+  return el?.closest('[data-inbox-context]');
+}
+
+function inboxEntryFor(el) {
+  return el?.closest('[data-inbox-entry]');
+}
+
+function setInboxEntryBusy(entry, busy) {
+  if (!entry) return;
+  entry.setAttribute('aria-busy', String(Boolean(busy)));
+  entry.querySelectorAll('button').forEach((button) => {
+    if (busy) {
+      if (!button.disabled) {
+        button.dataset.inboxBusyManaged = 'true';
+        button.disabled = true;
+      }
+      return;
+    }
+    if (button.dataset.inboxBusyManaged === 'true') {
+      delete button.dataset.inboxBusyManaged;
+      button.disabled = false;
+    }
+  });
+}
+
+function updateInboxEmptyState(context) {
+  const list = context?.querySelector('[data-inbox-list]');
+  const count = context?.querySelectorAll('[data-inbox-entry]').length || 0;
+  const counter = context?.querySelector('[data-inbox-count]');
+  if (counter) counter.textContent = String(count);
+  if (list && count === 0) {
+    list.replaceWith(Object.assign(document.createElement('div'), {className: 'empty-state inbox-empty', innerHTML: '<p>No Inbox captures. Use Quick capture on Home to add one.</p>'}));
+  }
+}
+
+function setInboxMessage(context, kind, title, detail, link) {
+  setInlineActionMessage(context?.querySelector('[data-inbox-message]'), kind, title, detail, link);
+}
+
+async function archiveInboxEntry(button) {
+  const entry = inboxEntryFor(button);
+  const context = inboxContextFor(button);
+  const csrf = editContextCSRF(context);
+  const path = entry?.dataset.inboxPath || '';
+  if (!csrf || !path) return;
+  setInboxEntryBusy(entry, true);
+  try {
+    const data = await editJSONRequest({csrf}, '/_api/edit/inbox/archive', 'POST', {path});
+    entry.remove();
+    updateInboxEmptyState(context);
+    setInboxMessage(context, 'success', 'Archived', data.path || 'Capture moved to Archive.', {href: data.url, label: 'Open archive'});
+  } catch (err) {
+    setInboxMessage(context, 'error', 'Archive failed', editErrorText(err));
+    setInboxEntryBusy(entry, false);
+  }
+}
+
+async function convertInboxEntry(button) {
+  const entry = inboxEntryFor(button);
+  const context = inboxContextFor(button);
+  const csrf = editContextCSRF(context);
+  const path = entry?.dataset.inboxPath || '';
+  if (!csrf || !path) return;
+  setInboxEntryBusy(entry, true);
+  try {
+    const data = await editJSONRequest({csrf}, '/_api/edit/inbox/convert-task', 'POST', {path});
+    if (data.code === 'task_written_archive_failed') {
+      setInboxEntryBusy(entry, false);
+      setInboxMessage(context, 'error', 'Task written with warning', data.message || 'Resolve this capture manually.');
+      return;
+    }
+    entry.remove();
+    updateInboxEmptyState(context);
+    setInboxMessage(context, 'success', 'Task added', data.task_file || 'Capture converted to a task.', {href: data.archive_url, label: 'Open archive'});
+  } catch (err) {
+    setInboxMessage(context, 'error', 'Convert failed', editErrorText(err));
+    setInboxEntryBusy(entry, false);
+  }
+}
+
+function inboxMoveRequestBody(state) {
+  return {
+    path: state.path,
+    target_path: state.overlay.querySelector('[name="inbox-move-target"]')?.value.trim() || '',
+    confirm_missing_dirs: state.confirmMissingDirs,
+    confirm_hidden: state.confirmHidden,
+  };
+}
+
+async function submitInboxMoveDialog(state) {
+  if (state.busy) return;
+  const body = inboxMoveRequestBody(state);
+  if (!body.target_path) {
+    setEditModalMessage(state, 'error', 'Target path required', 'Choose an explicit Markdown path inside the vault.');
+    return;
+  }
+  setEditModalBusy(state, true);
+  try {
+    const data = await editJSONRequest(state, '/_api/edit/inbox/move', 'POST', body);
+    location.assign(data.url || editURLForRel(data.path));
+  } catch (err) {
+    if (err.status === 409 && err.data?.requires_confirmation) {
+      showEditModalConfirmation(state, err.data, () => {
+        if (err.data.requires_confirmation === 'missing_dirs') state.confirmMissingDirs = true;
+        if (err.data.requires_confirmation === 'hidden') state.confirmHidden = true;
+        submitInboxMoveDialog(state);
+      });
+    } else {
+      setEditModalMessage(state, 'error', 'Move failed', editErrorText(err));
+    }
+  } finally {
+    setEditModalBusy(state, false);
+  }
+}
+
+function openInboxMoveDialog(button) {
+  const context = inboxContextFor(button);
+  const entry = inboxEntryFor(button);
+  const csrf = editContextCSRF(context);
+  const path = entry?.dataset.inboxPath || '';
+  if (!csrf || !path) return;
+  const state = openEditModal('Move capture', 'inbox-move-modal', button);
+  Object.assign(state, {csrf, path, confirmMissingDirs: false, confirmHidden: false});
+  const stem = stripEditableMarkdownExt(editBasename(path));
+  state.overlay.querySelector('[data-edit-modal-body]').innerHTML = '<form class="edit-form" data-inbox-move-form><dl class="edit-path-facts"><div><dt>Capture</dt><dd data-inbox-move-source></dd></div></dl><label>Target path<input name="inbox-move-target" autocomplete="off" placeholder="Projects/' + escapeHTML(stem || 'capture') + '.md"></label><p class="edit-field-hint">Missing folders and hidden destinations need explicit confirmation.</p><div class="edit-message" data-edit-modal-message hidden></div><footer class="edit-modal-actions"><button type="submit" class="btn primary">Move capture</button><button type="button" class="btn ghost" data-edit-modal-close>Cancel</button></footer></form>';
+  state.overlay.querySelector('[data-inbox-move-source]').textContent = path;
+  state.overlay.querySelector('[data-inbox-move-form]').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    submitInboxMoveDialog(state);
+  });
+  setTimeout(() => state.overlay.querySelector('[name="inbox-move-target"]')?.focus(), 0);
+}
+
+function initInboxUI() {
+  initQuickCapture();
+  document.addEventListener('click', (ev) => {
+    const archive = ev.target.closest('[data-inbox-archive]');
+    if (archive) { ev.preventDefault(); archiveInboxEntry(archive); return; }
+    const convert = ev.target.closest('[data-inbox-convert]');
+    if (convert) { ev.preventDefault(); convertInboxEntry(convert); return; }
+    const move = ev.target.closest('[data-inbox-move]');
+    if (move) { ev.preventDefault(); openInboxMoveDialog(move); }
+  });
+}
+
 
 function readTodoFilterState() {
   try {
@@ -457,8 +1009,8 @@ function restoreTodoFilterState({ tag, priority, date, group, hideNoDate, hideDo
   selectTodoOption(priority, state.priority || '');
   selectTodoOption(date, state.date || '');
   selectTodoOption(group, state.group || 'Due date');
-  if (hideNoDate && Object.prototype.hasOwnProperty.call(state, 'hideNoDate')) hideNoDate.checked = Boolean(state.hideNoDate);
-  if (hideDone && Object.prototype.hasOwnProperty.call(state, 'hideDone')) hideDone.checked = Boolean(state.hideDone);
+  if (hideNoDate && Object.hasOwn(state, 'hideNoDate')) hideNoDate.checked = Boolean(state.hideNoDate);
+  if (hideDone && Object.hasOwn(state, 'hideDone')) hideDone.checked = Boolean(state.hideDone);
 }
 
 function initTodoFilters() {
@@ -662,6 +1214,7 @@ function closeTodoMenus(exceptMenu) {
   });
 }
 function positionTodoDropdown(menu, dropdown) {
+  todoMenuOpenedAt = performance.now();
   const buttonRect = menu.getBoundingClientRect();
   dropdown.style.position = 'fixed';
   dropdown.style.left = '0px';
@@ -673,6 +1226,9 @@ function positionTodoDropdown(menu, dropdown) {
   const top = opensDown ? Math.min(window.innerHeight - dropdownRect.height - 8, buttonRect.bottom + 6) : Math.min(window.innerHeight - dropdownRect.height - 8, Math.max(8, buttonRect.top - dropdownRect.height - 6));
   dropdown.style.left = left + 'px';
   dropdown.style.top = top + 'px';
+}
+function todoMenuJustOpened() {
+  return todoMenuOpenedAt > 0 && performance.now() - todoMenuOpenedAt < 350;
 }
 function initTodoActions() {
   document.addEventListener('click', (ev) => {
@@ -690,8 +1246,14 @@ function initTodoActions() {
     if (expanded) resetTodoDropdown(dropdown);
     else positionTodoDropdown(menu, dropdown);
   });
-  window.addEventListener('resize', () => closeTodoMenus());
-  window.addEventListener('scroll', () => closeTodoMenus(), true);
+  window.addEventListener('resize', () => {
+    if (todoMenuJustOpened()) return;
+    closeTodoMenus();
+  });
+  window.addEventListener('scroll', () => {
+    if (todoMenuJustOpened()) return;
+    closeTodoMenus();
+  }, true);
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeTodoMenus();
   });
@@ -1806,7 +2368,7 @@ function initEditMode() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initNoteActionMenus(); initListFilters(); initHomepageProjectFilter(); initTodoActions(); initTodoFilters(); initEditMode();
+document.addEventListener('DOMContentLoaded', () => { applyInitialPreferences(); initThemePicker(); initReadingControls(); initRightPaneControls(); initSettingsModal(); initCommandPalette(); restoreSidebarState(); restorePanelState(); initMobileSidebar(); initNoteActionMenus(); initListFilters(); initHomepageProjectFilter(); initProjectFilter(); initInboxUI(); initTodoActions(); initTodoFilters(); initEditMode();
   initDataviewTables(); initNotesMaps(); });
 document.addEventListener('click', async (ev) => {
   const codeCopy = ev.target.closest('[data-copy-code]');
@@ -2110,10 +2672,12 @@ function openDataviewMulti(multi, focusFirst = false, focusIndex = 0) {
   closeDataviewMultiMenus(document, multi);
   menu.hidden = false;
   button.setAttribute('aria-expanded', 'true');
+  dataviewIgnoreScrollClose = true;
+  window.setTimeout(() => { dataviewIgnoreScrollClose = false; }, 120);
   positionDataviewMultiMenu(button, menu);
   const inputs = getDataviewMultiInputs(menu);
   inputs.forEach((input, index) => { input.tabIndex = index === Math.max(0, focusIndex) ? 0 : -1; });
-  if (focusFirst && inputs.length) inputs[Math.max(0, Math.min(focusIndex, inputs.length - 1))].focus();
+  if (focusFirst && inputs.length) inputs[Math.max(0, Math.min(focusIndex, inputs.length - 1))].focus({preventScroll: true});
 }
 
 function closeDataviewMulti(multi, focusButton = false) {
@@ -2179,7 +2743,7 @@ function focusDataviewMultiInput(inputs, index) {
   if (!inputs.length) return;
   const next = (index + inputs.length) % inputs.length;
   inputs.forEach((input, i) => { input.tabIndex = i === next ? 0 : -1; });
-  inputs[next].focus();
+  inputs[next].focus({preventScroll: true});
 }
 
 function syncDataviewMultiFromSelect(multi) {
@@ -2229,5 +2793,8 @@ function ensureDataviewGlobalHandlers() {
     });
   });
   window.addEventListener('resize', () => closeDataviewMultiMenus());
-  window.addEventListener('scroll', () => closeDataviewMultiMenus(), true);
+  window.addEventListener('scroll', () => {
+    if (dataviewIgnoreScrollClose) return;
+    closeDataviewMultiMenus();
+  }, true);
 }

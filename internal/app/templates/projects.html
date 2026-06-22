@@ -1,0 +1,52 @@
+{{define "projects"}}{{template "layout-start" .}}
+<section class="projects-page" data-projects-page aria-label="Projects">
+  <header class="projects-header page-header">
+    <div>
+      <p class="eyebrow">Projects</p>
+      <h1>Active projects</h1>
+      <p class="projects-summary">A read-only command surface for active project notes under <code>Projects/</code>, ordered by the latest indexed note.</p>
+    </div>
+    <div class="projects-header-meta" aria-label="Projects status">
+      <span class="chip">{{.ProjectsView.TotalCount}} active</span>
+      <span class="chip muted-chip">Read-only</span>
+    </div>
+  </header>
+  {{if .Err}}<p class="error">{{.Err}}</p>{{end}}
+
+  {{if gt .ProjectsView.TotalCount 0}}
+  <section class="projects-overview" aria-label="Projects overview">
+    <div class="projects-overview-card"><span>Active projects</span><strong>{{.ProjectsView.TotalCount}}</strong></div>
+    <div class="projects-overview-card"><span>Tracked notes</span><strong>{{.ProjectsView.NoteTotal}}</strong></div>
+    <div class="projects-overview-card quiet"><span>Source</span><strong>Projects/</strong></div>
+  </section>
+  <div class="projects-toolbar" role="search" aria-label="Project filters">
+    <label class="projects-search"><span>Filter</span><input type="search" data-project-filter placeholder="Filter projects…" autocomplete="off"></label>
+    <p class="projects-filter-summary" data-project-filter-count aria-live="polite">{{.ProjectsView.TotalCount}} project{{if ne .ProjectsView.TotalCount 1}}s{{end}} shown</p>
+  </div>
+  <p class="empty-state projects-filter-empty" data-project-filter-empty hidden>No projects match this filter.</p>
+  <div class="projects-list" data-projects-list role="list">
+    {{range .ProjectsView.Projects}}
+    <article class="project-card" data-project-card data-project-search-text="{{.Label}} {{.Description}} {{.RelPath}} {{.LatestTitle}} {{.LatestRel}}" role="listitem">
+      <div class="project-card-main">
+        <div class="project-card-heading">
+          <p class="eyebrow">Active project</p>
+          <h2><a href="{{.URL}}">{{.Label}}</a></h2>
+        </div>
+        {{if ne .Description .Label}}<p class="project-description">{{.Description}}</p>{{end}}
+        <dl class="project-meta" aria-label="Project facts">
+          <div><dt>Notes</dt><dd>{{.NoteCount}}</dd></div>
+          <div><dt>Updated</dt><dd>{{.Updated}}</dd></div>
+        </dl>
+      </div>
+      {{if .LatestTitle}}<a class="project-latest" href="{{.LatestURL}}"><span>Latest note</span><strong>{{.LatestTitle}}</strong><small>{{.LatestRel}}</small></a>{{end}}
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="empty-state projects-empty-state">
+    <h2>No active projects found.</h2>
+    <p>Projects are active when at least one note under <code>Projects/&lt;name&gt;</code> has frontmatter <code>status: active</code>.</p>
+  </div>
+  {{end}}
+</section>
+{{template "layout-end" .}}{{end}}

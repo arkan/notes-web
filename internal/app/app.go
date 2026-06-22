@@ -508,6 +508,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.tags(gw, r)
 	case "/_todo":
 		s.todo(gw, r)
+	case "/_inbox":
+		s.editInboxPage(gw, r)
 	case "/_broken-links":
 		s.brokenLinks(gw, r)
 	case "/_dataview":
@@ -516,6 +518,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.orphans(gw, r)
 	case "/_trash":
 		s.editTrashPage(gw, r)
+	case "/_projects":
+		s.projectsPage(gw, r)
+	case "/_calendar":
+		s.calendarPage(gw, r)
+	case "/_maintenance":
+		s.maintenancePage(gw, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/_tags/") {
 			s.tag(gw, r)
@@ -553,10 +561,25 @@ func (s *Server) common(title string) map[string]any {
 
 func (s *Server) commonForActive(title, activeRel string) map[string]any {
 	cfg := s.vault.LoadConfig()
-	data := map[string]any{"Title": title, "Tree": s.vault.SidebarTree(activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
+	data := map[string]any{"Title": title, "CurrentAppRoute": "", "CurrentUtilityRoute": "", "Tree": s.vault.SidebarTree(activeRel), "Favorites": s.vault.Favorites(), "ActiveRel": activeRel, "UI": cfg.UI()}
 	if cfg.Editing.Enabled {
 		data["EditCSRFToken"] = s.csrfToken
 	}
+	if reason := s.vault.inboxDisabledReason(cfg); reason == nil {
+		data["InboxEnabled"] = true
+	} else {
+		data["InboxDisabledReason"] = reason
+	}
+	return data
+}
+
+func setCurrentAppRoute(data map[string]any, route string) map[string]any {
+	data["CurrentAppRoute"] = route
+	return data
+}
+
+func setCurrentUtilityRoute(data map[string]any, route string) map[string]any {
+	data["CurrentUtilityRoute"] = route
 	return data
 }
 
@@ -591,7 +614,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			recent = recentNoteMetas(idx, 100)
 		}
 	}
-	c := s.common("Search")
+	c := setCurrentAppRoute(s.common("Search"), "search")
 	c["Q"] = q
 	c["Results"] = res
 	c["RecentNotes"] = recent
@@ -654,7 +677,7 @@ func (s *Server) paletteAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) brokenLinks(w http.ResponseWriter, r *http.Request) {
 	idx, err := s.vault.BuildIndex()
-	c := s.common("Broken links")
+	c := setCurrentUtilityRoute(s.common("Broken links"), "broken-links")
 	c["Err"] = err
 	if idx != nil {
 		links := BrokenWikiLinks(idx, NewIndexResolver(idx))
@@ -676,7 +699,7 @@ func (s *Server) dataviewDiagnostics(w http.ResponseWriter, r *http.Request) {
 	} else {
 		items = ScanDataviewDiagnostics(s.vault)
 	}
-	c := s.common("Dataview diagnostics")
+	c := setCurrentUtilityRoute(s.common("Dataview diagnostics"), "dataview")
 	c["Err"] = idxErr
 	c["Diagnostics"] = items
 	c["Total"] = len(items)
@@ -692,7 +715,7 @@ func (s *Server) dataviewDiagnostics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) orphans(w http.ResponseWriter, r *http.Request) {
 	idx, err := s.vault.BuildIndex()
-	c := s.common("Orphan notes")
+	c := setCurrentUtilityRoute(s.common("Orphan notes"), "orphans")
 	c["Err"] = err
 	if idx != nil {
 		orphans := OrphanNotes(idx, NewIndexResolver(idx))
@@ -725,7 +748,7 @@ func (s *Server) todo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		board, err = s.vault.BuildTaskBoard(today)
 	}
-	c := s.common("TODOs")
+	c := setCurrentAppRoute(s.common("TODOs"), "tasks")
 	c["Err"] = err
 	c["Today"] = today
 	c["Board"] = board
@@ -734,7 +757,7 @@ func (s *Server) todo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
 	idx, err := s.vault.BuildIndex()
-	c := s.common("Tags")
+	c := setCurrentAppRoute(s.common("Tags"), "tags")
 	c["Err"] = err
 	tags := tagSummaries(idx)
 	c["Tags"] = tags
@@ -749,7 +772,7 @@ func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
 func (s *Server) tag(w http.ResponseWriter, r *http.Request) {
 	tag := normalizeTag(strings.TrimPrefix(r.URL.Path, "/_tags/"))
 	idx, err := s.vault.BuildIndex()
-	c := s.common("#" + tag)
+	c := setCurrentAppRoute(s.common("#"+tag), "tags")
 	c["Err"] = err
 	c["Tag"] = tag
 	var notes []NoteMeta

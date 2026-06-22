@@ -2,10 +2,11 @@
 {{template "layout-start" .}}
 {{$home := .HomepageView}}
 
-<div class="page-header home-header">
+<div class="page-header home-header home-cockpit-header">
   <div>
-    <p class="eyebrow">Overview</p>
+    <p class="eyebrow">Daily cockpit</p>
     <h1>Home</h1>
+    <p class="home-header-summary">Start with the daily note, clear urgent work, then scan supporting context.</p>
   </div>
   <button class="copy-link btn ghost" data-copy-path>Copy path</button>
 </div>
@@ -13,20 +14,46 @@
 {{if .Err}}<p class="error">{{.Err}}</p>{{end}}
 
 <div class="home-dashboard" data-home-dashboard>
+  {{if .InboxEnabled}}
+  <section class="home-quick-capture card" data-quick-capture data-edit-csrf="{{.EditCSRFToken}}" aria-labelledby="home-quick-capture-title">
+    <div class="home-quick-capture-copy">
+      <p class="eyebrow">Inbox</p>
+      <h2 id="home-quick-capture-title">Quick capture</h2>
+      <p>First line becomes the title. Add details below, then press Cmd/Ctrl+Enter.</p>
+    </div>
+    <form class="home-quick-capture-form" data-quick-capture-form>
+      <label class="sr-only" for="home-quick-capture-input">Quick capture text</label>
+      <textarea id="home-quick-capture-input" data-quick-capture-input rows="3" placeholder="Call tax office&#10;Ask about the missing document." autocomplete="off" spellcheck="true"></textarea>
+      <div class="home-quick-capture-actions">
+        <span class="keyboard-hint">⌘/Ctrl Enter</span>
+        <button class="btn primary" type="submit" data-quick-capture-submit>Save to Inbox</button>
+      </div>
+      <div class="edit-message home-quick-capture-message" data-quick-capture-message role="status" hidden></div>
+    </form>
+  </section>
+  {{end}}
+
   <div class="home-main" data-home-column-stack="main">
     {{range $home.MainBlocks}}
       {{if eq .ID "today"}}
         <section class="home-block home-block-today today-card card" data-home-block="today" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-today-title">
           <div class="section-heading home-block-heading">
             <div>
-              <p class="eyebrow">Daily note</p>
+              <p class="eyebrow">Today</p>
               <h2 id="home-today-title">{{$home.TodayDate}}</h2>
             </div>
             {{if $home.TodayNote}}<a class="btn" href="{{url $home.TodayNote.RelPath}}">Open full note</a>{{end}}
           </div>
 
+          <div class="home-due-now-summary" aria-label="Urgent task summary">
+            <span><strong>{{len $home.TodoOverdue}}</strong> late</span>
+            <span><strong>{{len $home.TodoToday}}</strong> today</span>
+            <a href="/_todo">Review tasks</a>
+          </div>
+
           {{if and $home.TodayNote $home.TodayDoc}}
             <p class="home-note-title">{{$home.TodayDoc.Title}}</p>
+            <p class="home-hero-path">{{$home.TodayNote.RelPath}}</p>
             <div class="home-today-preview content" aria-label="Today note preview">
               {{safe $home.TodayDoc.HTML}}
             </div>
@@ -40,11 +67,12 @@
         <section class="home-block home-block-todos open-todos card" data-home-block="todos" data-home-column="{{.Column}}" data-home-order="{{.Order}}" style="--home-block-order: {{.Order}}" aria-labelledby="home-todos-title">
           <div class="section-heading home-block-heading">
             <div>
-              <p class="eyebrow">Tasks</p>
+              <p class="eyebrow">Urgent tasks</p>
               <h2 id="home-todos-title">Due now</h2>
             </div>
             <a class="btn" href="/_todo">Open TODO dashboard</a>
           </div>
+          <p class="home-block-intent">Overdue and today tasks stay in the main flow.</p>
           <div class="home-todo-sections" aria-label="Tasks due now">
             <section class="todo-section overdue" aria-labelledby="home-todo-overdue">
               <div class="todo-section-header">
@@ -73,6 +101,7 @@
             </div>
             <span class="count">{{len $home.Dashboard.ActiveProjects}}</span>
           </div>
+          <p class="home-block-intent">Active project notes grouped from the vault.</p>
           <label class="home-project-filter">
             <span>Filter projects</span>
             <input type="search" placeholder="Filter projects…" aria-label="Filter projects" data-home-project-filter>
@@ -105,6 +134,7 @@
               <h2 id="home-recent-notes-title">Recent notes</h2>
             </div>
           </div>
+          <p class="home-block-intent">Recent changes for low-friction return paths.</p>
           <ul class="compact-list">
             {{range $home.Dashboard.RecentNotes}}
               <li>

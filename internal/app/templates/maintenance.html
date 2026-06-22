@@ -1,0 +1,114 @@
+{{define "maintenance"}}{{template "layout-start" .}}
+<div class="page-header"><div><p class="eyebrow">Vault health</p><h1>Maintenance</h1></div></div>
+{{if .Maintenance.Err}}<p class="error">{{.Maintenance.Err}}</p>{{end}}
+<div class="maintenance-grid">
+
+  {{if or (gt .Maintenance.BrokenTotal 0) (gt .Maintenance.DataviewUnsupported 0)}}
+  <section class="card maintenance-section high-priority">
+    <h2>High priority</h2>
+    <div class="maintenance-cards">
+
+      {{if gt .Maintenance.BrokenTotal 0}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">⛓</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_broken-links">Broken links</a></h3>
+          <p>{{.Maintenance.BrokenTotal}} occurrence{{if ne .Maintenance.BrokenTotal 1}}s{{end}} in {{.Maintenance.BrokenAffectedNotes}} note{{if ne .Maintenance.BrokenAffectedNotes 1}}s{{end}} &middot; {{.Maintenance.BrokenDistinctTargets}} distinct target{{if ne .Maintenance.BrokenDistinctTargets 1}}s{{end}}</p>
+        </div>
+      </div>
+      {{end}}
+
+      {{if gt .Maintenance.DataviewUnsupported 0}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">▦</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_dataview">Unsupported Dataview blocks</a></h3>
+          <p>{{.Maintenance.DataviewUnsupported}} unsupported block{{if ne .Maintenance.DataviewUnsupported 1}}s{{end}} of {{.Maintenance.DataviewTotal}} total</p>
+        </div>
+      </div>
+      {{end}}
+
+    </div>
+  </section>
+  {{end}}
+
+  {{if or (gt .Maintenance.OrphanTotal 0) (gt .Maintenance.DataviewTotal 0)}}
+  <section class="card maintenance-section review">
+    <h2>Review</h2>
+    <div class="maintenance-cards">
+
+      {{if gt .Maintenance.OrphanTotal 0}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">◌</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_orphans">Orphan notes</a></h3>
+          <p>{{.Maintenance.OrphanTotal}} orphan{{if ne .Maintenance.OrphanTotal 1}}s{{end}}</p>
+        </div>
+      </div>
+      {{else}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">◌</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_orphans">Orphan notes</a></h3>
+          <p class="muted">No orphan notes. Vault is well-connected.</p>
+        </div>
+      </div>
+      {{end}}
+
+      {{if gt .Maintenance.DataviewTotal 0}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">▦</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_dataview">Dataview diagnostics</a></h3>
+          <p>{{.Maintenance.DataviewTotal}} block{{if ne .Maintenance.DataviewTotal 1}}s{{end}} &middot; {{.Maintenance.DataviewUnsupported}} unsupported</p>
+        </div>
+      </div>
+      {{end}}
+
+    </div>
+  </section>
+  {{end}}
+
+  <section class="card maintenance-section">
+    <h2>Links</h2>
+    <div class="maintenance-cards">
+
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">⛓</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_broken-links">Broken links detail</a></h3>
+          <p class="muted">View all broken wikilinks grouped by target.</p>
+        </div>
+      </div>
+
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">◌</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_orphans">Orphans detail</a></h3>
+          <p class="muted">View all notes with no incoming links.</p>
+        </div>
+      </div>
+
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">▦</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_dataview">Dataview diagnostics</a></h3>
+          <p class="muted">Review all Dataview blocks by status.</p>
+        </div>
+      </div>
+
+      {{if .EditCSRFToken}}
+      <div class="maintenance-card">
+        <div class="maintenance-card-icon" aria-hidden="true">♻</div>
+        <div class="maintenance-card-body">
+          <h3><a href="/_trash">Trash</a></h3>
+          {{if .Maintenance.TrashAvailable}}<p class="muted">{{.Maintenance.TrashCount}} snapshot{{if ne .Maintenance.TrashCount 1}}s{{end}}.</p>{{else}}<p class="muted">Trash unavailable.</p>{{end}}
+        </div>
+      </div>
+      {{end}}
+
+    </div>
+  </section>
+
+</div>
+{{template "layout-end" .}}{{end}}

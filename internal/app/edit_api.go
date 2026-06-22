@@ -118,6 +118,14 @@ func (s *Server) editAPI(w http.ResponseWriter, r *http.Request) {
 		s.editTrash(w, r)
 	case "trash/restore":
 		s.editTrashRestore(w, r)
+	case "capture":
+		s.editCapture(w, r)
+	case "inbox/archive":
+		s.editInboxArchive(w, r)
+	case "inbox/move":
+		s.editInboxMove(w, r)
+	case "inbox/convert-task":
+		s.editInboxConvertTask(w, r)
 	default:
 		http.NotFound(w, r)
 	}

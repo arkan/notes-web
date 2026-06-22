@@ -248,7 +248,7 @@ func (s *Server) editTrashPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries, err := s.vault.trashList()
-	c := s.common("Trash")
+	c := setCurrentAppRoute(s.common("Trash"), "trash")
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
 		c["Err"] = "Unable to load trash."

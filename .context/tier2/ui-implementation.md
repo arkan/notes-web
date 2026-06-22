@@ -17,10 +17,10 @@ The UI is server-rendered HTML with vanilla JavaScript enhancements. `DESIGN.md`
 
 ## JavaScript responsibilities
 
-- Command palette: fetches `/_api/palette`, filters client-side, supports mouse and keyboard selection.
-- Reading controls: theme, font size, and reading focus toggles.
+- Command palette: fetches `/_api/palette`, filters client-side, supports mouse and keyboard selection, and renders browser-local recents only after hydrating them from current server palette items.
+- Settings controls: theme, font size, density, reading focus, and palette recent clearing.
 - Sidebar/panels: restore open state for tree folders and details panels.
-- Mobile sidebar: drawer open/close and Escape handling.
+- Modern Workbench shell: right pane toggle, mobile sidebar drawer open/close, Escape handling, and modal isolation.
 - List/tag/home project filters: local filtering over already-rendered content.
 - TODO controls: action menus and local filter persistence.
 - Copy buttons: task IDs, code blocks, and current path.
@@ -34,14 +34,19 @@ The UI is server-rendered HTML with vanilla JavaScript enhancements. `DESIGN.md`
 - `notes-web:theme` — `auto`, light, dark, sepia modes.
 - `notes-web:font-size` — reading font size.
 - `notes-web:reading-focus` — reading focus mode.
+- `notes-web:right-pane-open` — right context pane open/closed state.
+- `notes-web:density` — compact or comfortable density.
+- `notes-web:palette-recent` — browser-local command palette recents, filtered against current `/_api/palette` items before rendering.
 - `notes-web:todo-filters` — TODO page filters.
 
 Do not store secrets or server-derived credentials in localStorage.
+Treat `notes-web:palette-recent` as an untrusted cache: do not render or navigate a recent unless its URL is present in the current `/_api/palette` payload.
 
 ## Keyboard and accessibility expectations
 
 - Preserve `/` and `Ctrl/Cmd+K` command palette shortcuts unless a field has focus.
 - Preserve `Ctrl/Cmd+B` reading focus toggle.
+- Reading focus must keep Settings and command palette reachable, and must not leave inert mobile sidebar controls visible.
 - Escape closes palette, settings modal, sidebar, and Dataview multi menus where relevant.
 - Interactive table headers must be keyboard-operable and keep `aria-sort` accurate.
 - Dataview multi filters must support Arrow keys, Home/End, Enter/Space, Tab close, and Escape close with focus return.
@@ -58,9 +63,12 @@ Do not store secrets or server-derived credentials in localStorage.
 ## Safe UI change workflow
 
 - Identify the exact route and template or renderer before changing CSS.
+- For cleanup, remove selectors only with evidence that templates/JS/tests no longer reference them or that cascade/computed behavior proves the selector is dead.
 - If JS replaces server HTML, preserve data attributes used for reinitialization.
 - If CSS changes affect embedded assets, verify against a rebuilt/restarted binary or Playwright server.
 - Use `DESIGN.md` for visual decisions instead of introducing new tokens ad hoc.
+- Comfortable density must preserve or increase spacing on already-spacious key surfaces.
+- Dataview diagnostics/code/table surfaces must contain overflow internally instead of widening the page.
 - Add Playwright coverage for browser-visible keyboard, AJAX, or stateful behavior.
 
 ## Anti-patterns

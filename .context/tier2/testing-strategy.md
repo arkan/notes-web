@@ -11,7 +11,8 @@ Use the smallest test level that proves the behavior, then add browser coverage 
 ## Existing E2E coverage areas
 
 - `markdown-rendering.spec.ts` — Markdown features, wikilinks, panels, copy buttons.
-- `internal-pages.spec.ts` — home, folders, search, tags, diagnostics, missing/resolve, command palette, TODO pages.
+- `internal-pages.spec.ts` — Modern Workbench shell, home, folders, search, tags, diagnostics, missing/resolve, command palette, Settings, TODO/Tasks, Projects, Calendar, Maintenance, mobile overflow.
+- `edit-mode.spec.ts` — edit CRUD, Inbox/capture, Trash/restore, action menus, write workflows.
 - `dataview-gallery.spec.ts` — supported Dataview query types and diagnostics.
 - `dataview-filters.spec.ts` — Dataview TABLE AJAX filters, sorting, debounce, pagination, keyboard behavior.
 
@@ -32,8 +33,11 @@ After `npm ci`, avoid plain `go test ./...` because `node_modules` may contain G
 - Parser/evaluator/config/path/security change: Go tests first.
 - Template/CSS/JS/keyboard/AJAX visible change: Playwright E2E plus any Go handler tests for server contract.
 - Dataview syntax or semantics: Go parser/evaluator/render tests, fixture note updates, Playwright assertions, and `docs/dataview.md` updates.
+- Dataview CSS/diagnostics changes: `dataview-gallery.spec.ts`, `dataview-filters.spec.ts`, and mobile overflow checks when tables/code diagnostics are affected.
 - Markdown rendering behavior: Go renderer tests when possible, plus Playwright on `Syntax/All Syntaxes.md` when browser-visible.
 - Homepage/config behavior: Go tests for typed config and view models; Playwright only for rendered block/interactivity regressions.
+- Settings/palette/local preference behavior: Playwright for persistence/focus/mobile overflow, Go static contracts for embedded JS/CSS hooks.
+- Write-path behavior: Go tests for auth/CSRF/path policy/collision/rollback and Playwright for visible workflows.
 - Nix/Makefile/package tooling: command smoke checks and doc alignment; full E2E when Playwright config changes.
 
 ## Fixture vault rules
@@ -55,3 +59,4 @@ After `npm ci`, avoid plain `go test ./...` because `node_modules` may contain G
 - For multi-file behavior changes, run `make test` when feasible.
 - If full validation is too expensive or blocked, state exactly what passed and what was skipped.
 - Embedded asset bugs must be verified against the process actually serving the page, not only the edited source.
+- Any phase touching shared templates/static assets should end with `make test` and `git diff --check` before handoff.

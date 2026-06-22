@@ -10,11 +10,13 @@ import (
 
 // templateVars holds the variables available for template substitution.
 type templateVars struct {
-	Title  string
-	Slug   string
-	Path   string
-	Folder string
-	Date   string
+	Title      string
+	Slug       string
+	Path       string
+	Folder     string
+	Date       string
+	Body       string
+	CapturedAt string
 }
 
 // resolveNearestTemplate walks upward from targetRel's parent directory to
@@ -74,6 +76,8 @@ func applyTemplate(content string, vars templateVars) string {
 		"{{path}}", vars.Path,
 		"{{folder}}", vars.Folder,
 		"{{date}}", vars.Date,
+		"{{body}}", vars.Body,
+		"{{captured_at}}", vars.CapturedAt,
 	)
 	return repl.Replace(content)
 }

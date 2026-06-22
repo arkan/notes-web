@@ -102,7 +102,7 @@ func (s *Server) buildHomepageView(cfg Config, dashboard Dashboard) HomepageView
 // keeping both the legacy .Dashboard and the new .HomepageView.Dashboard consistent.
 func (s *Server) templateDataForHome(title string, dashboard Dashboard, err error) map[string]any {
 	cfg := s.vault.LoadConfig()
-	c := s.commonForActive(title, "")
+	c := setCurrentAppRoute(s.commonForActive(title, ""), "home")
 	c["Dashboard"] = dashboard
 	c["Err"] = err
 	c["Latest"] = dashboard.LatestDaily

@@ -17,6 +17,11 @@ type Config struct {
 	Sidebar        SidebarConfig  `yaml:"sidebar"`
 	Homepage       HomepageConfig `yaml:"homepage"`
 	Editing        EditingConfig  `yaml:"editing"`
+	Todo           TodoConfig     `yaml:"todo"`
+}
+
+type TodoConfig struct {
+	TodoFile string `yaml:"todo_file"`
 }
 
 type EditingConfig struct {

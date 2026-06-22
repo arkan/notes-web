@@ -1,5 +1,159 @@
 {{define "layout-start"}}
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · Notes Web</title><script>try{const ls=localStorage;const theme=ls.getItem("notes-web:theme");if(theme&&theme!=="auto")document.documentElement.dataset.theme=theme;const font=ls.getItem("notes-web:font-size");if(font&&font!=="normal")document.documentElement.dataset.fontSize=font;if(ls.getItem("notes-web:reading-focus")==="true")document.documentElement.dataset.readingFocus="true";}catch(e){}</script><link rel="stylesheet" href="/_static/style.css"><script defer src="/_static/app.js"></script><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'; mermaid.initialize({startOnLoad:true,theme:'neutral'});</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script></head><body><button class="mobile-menu btn icon-btn" data-sidebar-toggle aria-label="Open sidebar" aria-expanded="false">☰</button><button class="palette-button btn" data-palette-open aria-label="Open command palette">⌘K</button><div class="palette" data-palette{{if .EditCSRFToken}} data-global-edit-context data-edit-csrf="{{.EditCSRFToken}}"{{end}} hidden><div class="palette-panel" role="dialog" aria-label="Command palette"><input data-palette-input aria-label="Command palette" placeholder="Search notes, tags, and favorites…"><div class="palette-results" data-palette-results role="listbox"></div><div class="palette-shortcuts" aria-hidden="true"><span>↑↓ Navigate</span><span>Enter Open</span><span>Esc Close</span></div></div></div><div class="sidebar-backdrop" data-sidebar-close></div><div class="shell"><aside class="side"><div class="side-header"><div><a class="brand" href="/">Notes Web</a><span class="side-subtitle">Personal knowledge base</span></div><button class="settings-button btn ghost icon-btn" data-settings-open aria-haspopup="dialog" aria-label="Settings"><span aria-hidden="true">⚙</span></button></div>{{if not .UI.HideSidebarFavorites}}<section><h3>Favorites</h3>{{range .Favorites}}<a class="nav" href="{{.URL}}"><span class="nav-icon nav-icon-favorite">★</span>{{.Label}}</a>{{end}}</section>{{end}}{{if not .UI.HideSidebarExplore}}<section><h3>Explore</h3><a class="nav" href="/_search"><span class="nav-icon nav-icon-search">⌕</span>Search</a>{{if not .UI.HideSidebarTodo}}<a class="nav" href="/_todo"><span class="nav-icon">☑</span>TODOs</a>{{end}}<a class="nav" href="/_tags"><span class="nav-icon">#</span>Tags</a><a class="nav" href="/_broken-links"><span class="nav-icon">⛓</span>Broken links</a><a class="nav" href="/_orphans"><span class="nav-icon">◌</span>Orphans</a></section>{{end}}<section><h3>Vault</h3>{{template "tree" .Tree}}</section></aside><div class="settings-modal" data-settings-modal hidden><div class="settings-backdrop" data-settings-close></div><section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><div><p class="eyebrow">Preferences</p><h2 id="settings-title">Settings</h2></div><button class="btn ghost icon-btn" data-settings-close aria-label="Close settings">×</button></header><section class="settings-section"><h3>Appearance</h3><label class="setting-row"><span><strong>Theme</strong><small>Choose the color palette for the app chrome.</small></span><select data-theme-select aria-label="Theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select></label><label class="setting-row"><span><strong>Font size</strong><small>Adjust note reading size across pages.</small></span><select data-font-size-select aria-label="Font size"><option value="normal">Normal</option><option value="small">Small</option><option value="large">Large</option></select></label></section><section class="settings-section"><h3>Keyboard shortcuts</h3><dl class="shortcut-list"><div><dt>⌘/Ctrl K</dt><dd>Open command palette</dd></div><div><dt>/</dt><dd>Open command palette when not typing</dd></div><div><dt>⌘/Ctrl B</dt><dd>Toggle sidebar</dd></div><div><dt>Esc</dt><dd>Close dialogs</dd></div></dl></section></section></div><main class="main">
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.Title}} · Notes Web</title>
+  <script>try{const ls=localStorage;const theme=ls.getItem("notes-web:theme");if(theme&&theme!=="auto")document.documentElement.dataset.theme=theme;const font=ls.getItem("notes-web:font-size");if(font&&font!=="normal")document.documentElement.dataset.fontSize=font;if(ls.getItem("notes-web:reading-focus")==="true")document.documentElement.dataset.readingFocus="true";const rightPane=ls.getItem("notes-web:right-pane-open");if(rightPane==="false")document.documentElement.dataset.rightPaneOpen="false";const density=ls.getItem("notes-web:density");if(density&&density!=="compact")document.documentElement.dataset.density=density;}catch(e){}</script>
+  <link rel="stylesheet" href="/_static/style.css">
+  <script defer src="/_static/app.js"></script>
+  <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'; mermaid.initialize({startOnLoad:true,theme:'neutral'});</script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <button class="mobile-menu btn icon-btn" data-sidebar-toggle aria-label="Open sidebar" aria-expanded="false">☰</button>
+  <button class="palette-button btn" data-palette-open aria-haspopup="dialog" aria-expanded="false" aria-label="Open command palette">⌘K</button>
+  <button class="settings-fab btn icon-btn" data-settings-open aria-haspopup="dialog" aria-label="Settings"><span aria-hidden="true">⚙</span></button>
+
+  <div class="palette" data-palette{{if .EditCSRFToken}} data-global-edit-context data-edit-csrf="{{.EditCSRFToken}}"{{end}} hidden>
+    <div class="palette-panel" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="palette-search-row">
+        <span class="palette-search-icon" aria-hidden="true">⌕</span>
+        <input data-palette-input aria-label="Command palette" placeholder="Search notes, tags, actions…" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="palette-results" data-palette-results role="listbox"></div>
+      <div class="palette-shortcuts" aria-hidden="true"><span>↑↓ Navigate</span><span>Enter Open</span><span>Esc Close</span></div>
+    </div>
+  </div>
+
+  <div class="sidebar-backdrop" data-sidebar-close></div>
+  <div class="shell" data-workbench-shell>
+    <aside class="side" aria-label="Vault navigation">
+      <div class="side-header"><div><a class="brand" href="/">Notes Web</a><span class="side-subtitle">Personal knowledge base</span></div><button class="settings-button btn ghost icon-btn" data-settings-open aria-haspopup="dialog" aria-label="Settings"><span aria-hidden="true">⚙</span></button></div>
+
+      {{if not .UI.HideSidebarExplore}}
+      <section>
+        <h3>Explore</h3>
+        <nav class="side-nav-list" aria-label="App navigation">
+          <a class="nav" href="/"{{if eq .CurrentAppRoute "home"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">⌂</span>Home</a>
+          {{if .InboxEnabled}}<a class="nav" href="/_inbox"{{if eq .CurrentAppRoute "inbox"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">☐</span>Inbox</a>{{end}}
+          {{if not .UI.HideSidebarTodo}}<a class="nav" href="/_todo"{{if eq .CurrentAppRoute "tasks"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">☑</span>Tasks</a>{{end}}
+          <a class="nav" href="/_projects"{{if eq .CurrentAppRoute "projects"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">▤</span>Projects</a>
+          <a class="nav" href="/_calendar"{{if eq .CurrentAppRoute "calendar"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">📅</span>Calendar</a>
+          <a class="nav" href="/_search"{{if eq .CurrentAppRoute "search"}} aria-current="page"{{end}}><span class="nav-icon nav-icon-search" aria-hidden="true">⌕</span>Search</a>
+          <a class="nav" href="/_tags"{{if eq .CurrentAppRoute "tags"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">#</span>Tags</a>
+          <a class="nav" href="/_maintenance"{{if eq .CurrentAppRoute "maintenance"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">◉</span>Maintenance</a>
+          {{if .EditCSRFToken}}<a class="nav" href="/_trash"{{if eq .CurrentAppRoute "trash"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">♻</span>Trash</a>{{end}}
+        </nav>
+      </section>
+      {{end}}
+
+      {{if not .UI.HideSidebarFavorites}}
+      <section>
+        <h3>Favorites</h3>
+        <nav class="side-nav-list" aria-label="Favorites">
+          {{range .Favorites}}<a class="nav" href="{{.URL}}"><span class="nav-icon nav-icon-favorite" aria-hidden="true">★</span>{{.Label}}</a>{{end}}
+        </nav>
+      </section>
+      {{end}}
+
+      {{if not .UI.HideSidebarExplore}}
+      <section>
+        <h3>Utilities</h3>
+        <nav class="side-nav-list" aria-label="Diagnostics">
+          <a class="nav" href="/_broken-links"{{if eq .CurrentUtilityRoute "broken-links"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">⛓</span>Broken links</a>
+          <a class="nav" href="/_orphans"{{if eq .CurrentUtilityRoute "orphans"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">◌</span>Orphans</a>
+          <a class="nav" href="/_dataview"{{if eq .CurrentUtilityRoute "dataview"}} aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">▦</span>Dataview</a>
+        </nav>
+      </section>
+      {{end}}
+
+      <section><h3>Vault</h3>{{template "tree" .Tree}}</section>
+    </aside>
+
+    <div class="settings-modal" data-settings-modal hidden>
+      <div class="settings-backdrop" data-settings-close></div>
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header><div><p class="eyebrow">Preferences</p><h2 id="settings-title">Settings</h2></div><button class="btn ghost icon-btn" data-settings-close aria-label="Close settings">×</button></header>
+        <section class="settings-section">
+          <h3>Appearance</h3>
+          <label class="setting-row"><span><strong>Theme</strong><small>Choose the color palette for the app chrome.</small></span><select data-theme-select aria-label="Theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select></label>
+          <label class="setting-row"><span><strong>Font size</strong><small>Adjust note reading size across pages.</small></span><select data-font-size-select aria-label="Font size"><option value="normal">Normal</option><option value="small">Small</option><option value="large">Large</option></select></label>
+          <label class="setting-row"><span><strong>Context pane</strong><small>Keep the desktop context pane open or collapsed.</small></span><select data-right-pane-select aria-label="Context pane"><option value="open">Open</option><option value="closed">Closed</option></select></label>
+          <label class="setting-row"><span><strong>Density</strong><small>Compact premium or comfortable reading spacing.</small></span><select data-density-select aria-label="Density"><option value="compact">Compact</option><option value="comfortable">Comfortable</option></select></label>
+          <label class="setting-row"><span><strong>Reading focus</strong><small>Hide sidebar and context pane for distraction-free reading.</small></span><select data-reading-focus-select aria-label="Reading focus"><option value="off">Off</option><option value="on">On</option></select></label>
+        </section>
+        <section class="settings-section">
+          <h3>Privacy & data</h3>
+          <div class="setting-row"><span><strong>Palette recents</strong><small>Recently opened items appear first in the command palette.</small></span><span class="setting-row-end"><span class="muted" data-palette-recent-status></span><button class="btn ghost" data-palette-recent-clear type="button">Clear recents</button></span></div>
+        </section>
+        <section class="settings-section">
+          <h3>Keyboard shortcuts</h3>
+          <dl class="shortcut-list"><div><dt>⌘/Ctrl K</dt><dd>Open command palette</dd></div><div><dt>/</dt><dd>Open command palette when not typing</dd></div><div><dt>⌘/Ctrl B</dt><dd>Toggle reading focus</dd></div><div><dt>Esc</dt><dd>Close dialogs</dd></div></dl>
+        </section>
+      </section>
+    </div>
+
+    <div class="workbench-center">
+      <div class="workbench-topbar" aria-label="Workbench controls">
+        <button class="right-pane-toggle btn ghost" type="button" data-right-pane-toggle data-right-pane-toggle-primary aria-controls="workbench-context-pane" aria-expanded="true" aria-label="Toggle context pane"><span aria-hidden="true">☷</span><span>Context</span></button>
+      </div>
+      <main class="main" id="main-content" tabindex="-1">
 {{end}}
-{{define "layout-end"}}</main></div></body></html>{{end}}
-{{define "tree"}}<ul class="tree">{{range .}}<li>{{if .IsDir}}<details class="tree-folder{{if .ContainsActive}} active-branch{{end}}" data-tree-path="{{.Rel}}"{{if .ContainsActive}} open{{end}}><summary><span aria-hidden="true">📁</span> {{.Name}}</summary>{{if .Children}}{{template "tree" .Children}}{{end}}</details>{{else}}<a{{if .IsActive}} class="active" aria-current="page"{{end}} href="{{.URL}}"><span aria-hidden="true">📄</span> {{.Name}}</a>{{end}}</li>{{end}}</ul>{{end}}
+
+{{define "layout-end"}}
+      </main>
+    </div>
+    <aside class="context-pane" id="workbench-context-pane" data-context-pane aria-label="Workbench context">
+      <div class="context-pane-header">
+        <div><p class="eyebrow">Context</p><h2>{{.Title}}</h2></div>
+        <button class="right-pane-toggle btn ghost icon-btn" type="button" data-right-pane-toggle aria-controls="workbench-context-pane" aria-expanded="true" aria-label="Hide context pane">×</button>
+      </div>
+      <section class="context-module" aria-labelledby="context-current-heading">
+        <h3 id="context-current-heading">Current page</h3>
+        <dl class="context-facts">
+          <div><dt>Title</dt><dd>{{.Title}}</dd></div>
+          {{with .Note}}<div><dt>Path</dt><dd>{{.RelPath}}</dd></div>{{else}}{{with .Path}}<div><dt>Path</dt><dd>{{.}}</dd></div>{{else}}<div><dt>Route</dt><dd>{{if eq .Title "Home"}}/{{else}}{{.Title}}{{end}}</dd></div>{{end}}{{end}}
+        </dl>
+      </section>
+      <section class="context-module" aria-labelledby="context-links-heading">
+        <h3 id="context-links-heading">Quick links</h3>
+        <nav class="context-link-list" aria-label="Context quick links">
+          <a href="/">Home</a>
+          {{if .InboxEnabled}}<a href="/_inbox">Inbox</a>{{end}}
+          {{if not .UI.HideSidebarTodo}}<a href="/_todo">Tasks</a>{{end}}
+          <a href="/_projects">Projects</a>
+          <a href="/_calendar">Calendar</a>
+          <a href="/_search">Search</a>
+          <a href="/_tags">Tags</a>
+          <a href="/_maintenance">Maintenance</a>
+          {{if .EditCSRFToken}}<a href="/_trash">Trash</a>{{end}}
+        </nav>
+      </section>
+      {{with .Note}}
+      <section class="context-module" aria-labelledby="context-note-heading">
+        <h3 id="context-note-heading">Note metadata</h3>
+        <dl class="context-facts">
+          <div><dt>Type</dt><dd>Markdown note</dd></div>
+          <div><dt>Links out</dt><dd>{{len $.ForwardLinks}}</dd></div>
+          <div><dt>Backlinks</dt><dd>{{len $.Backlinks}}</dd></div>
+          {{with $.Doc.Tags}}<div><dt>Tags</dt><dd>{{range .}}<a class="context-chip" href="/_tags/{{.}}">#{{.}}</a>{{end}}</dd></div>{{end}}
+        </dl>
+      </section>
+      {{end}}
+      <section class="context-module" aria-labelledby="context-care-heading">
+        <h3 id="context-care-heading">Vault care</h3>
+        <nav class="context-link-list" aria-label="Diagnostics quick links"><a href="/_broken-links">Broken links</a><a href="/_orphans">Orphans</a><a href="/_dataview">Dataview diagnostics</a></nav>
+      </section>
+      <p class="context-help muted">Read-only context only. Page actions stay in the main content during this phase.</p>
+    </aside>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "tree"}}
+<ul class="tree">{{range .}}<li>{{if .IsDir}}<details class="tree-folder{{if .ContainsActive}} active-branch{{end}}" data-tree-path="{{.Rel}}"{{if .ContainsActive}} open{{end}}><summary><span aria-hidden="true">📁</span> {{.Name}}</summary>{{if .Children}}{{template "tree" .Children}}{{end}}</details>{{else}}<a{{if .IsActive}} class="active" aria-current="page"{{end}} href="{{.URL}}"><span aria-hidden="true">📄</span> {{.Name}}</a>{{end}}</li>{{end}}</ul>
+{{end}}
