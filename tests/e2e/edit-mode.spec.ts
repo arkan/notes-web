@@ -409,6 +409,52 @@ test.describe.serial("Edit mode CRUD", () => {
     await expect(page).toHaveURL(`${baseURL}/_trash`);
   });
 
+  test("Trash and Inbox use wide unboxed app page surfaces", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    for (const route of ["/_trash", "/_inbox"]) {
+      await page.goto(`${baseURL}${route}`);
+      const selector = route === "/_trash" ? ".trash-view" : ".inbox-view";
+      const metrics = await page.evaluate((surfaceSelector) => {
+        const surface = document.querySelector<HTMLElement>(surfaceSelector);
+        const main = document.querySelector<HTMLElement>("main#main-content");
+        const header = surface?.querySelector<HTMLElement>(".page-header");
+        const empty = surface?.querySelector<HTMLElement>(".empty-state");
+        if (!surface || !main || !header) return null;
+        const surfaceStyle = getComputedStyle(surface);
+        const headerStyle = getComputedStyle(header);
+        const emptyStyle = empty ? getComputedStyle(empty) : null;
+        return {
+          className: surface.className,
+          borderTopWidth: surfaceStyle.borderTopWidth,
+          boxShadow: surfaceStyle.boxShadow,
+          surfaceWidth: surface.getBoundingClientRect().width,
+          mainWidth: main.getBoundingClientRect().width,
+          headerBorderBottomWidth: headerStyle.borderBottomWidth,
+          emptyBorderTopWidth: emptyStyle?.borderTopWidth ?? "0px",
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        };
+      }, selector);
+      if (!metrics) throw new Error(`${route} app page metrics were not available`);
+      expect(metrics.className).toContain("app-page");
+      expect(metrics.className).not.toContain("reading-surface");
+      expect(metrics.borderTopWidth).toBe("0px");
+      expect(metrics.boxShadow).toBe("none");
+      expect(metrics.headerBorderBottomWidth).toBe("0px");
+      expect(metrics.emptyBorderTopWidth).toBe("0px");
+      expect(metrics.surfaceWidth).toBeGreaterThan(metrics.mainWidth * 0.76);
+      expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${baseURL}/_trash`);
+    const mobileMetrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(mobileMetrics.scrollWidth).toBeLessThanOrEqual(mobileMetrics.clientWidth + 2);
+  });
+
   test("captures from Home and lists the Inbox item", async ({ page }) => {
     const title = `UI Capture ${Date.now()}`;
     const href = await createInboxCapture(page, baseURL, title, "Remember this from the browser test.");

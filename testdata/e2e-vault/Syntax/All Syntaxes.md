@@ -105,6 +105,10 @@ Ambiguous wikilink: [[Resolve One]]
 External link: [Notes Web](https://example.com)
 Local image: ![Tiny SVG](/Assets/tiny.svg)
 
+Missing local image: ![Missing attachment](/Assets/missing-preview.png)
+
+Non-previewable local media: ![Reference PDF](/Assets/reference.pdf)
+
 ## More headings for backlink context
 
 ### Section about wikilinks

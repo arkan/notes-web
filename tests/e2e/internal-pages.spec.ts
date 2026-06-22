@@ -152,6 +152,32 @@ test.describe("Modern workbench shell", () => {
     await expect(sidebar).toHaveJSProperty("inert", true);
   });
 
+  test("desktop sidebar scrolls independently when vault navigation is taller than the viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 360 });
+    await page.goto("/Syntax/All%20Syntaxes.md");
+
+    const metrics = await page.evaluate(() => {
+      const sidebar = document.querySelector<HTMLElement>('aside[aria-label="Vault navigation"]');
+      const main = document.querySelector<HTMLElement>("main#main-content");
+      if (!sidebar || !main) return null;
+      const beforeMainScroll = main.scrollTop;
+      sidebar.scrollTop = sidebar.scrollHeight;
+      return {
+        clientHeight: sidebar.clientHeight,
+        scrollHeight: sidebar.scrollHeight,
+        scrollTop: sidebar.scrollTop,
+        overflowY: getComputedStyle(sidebar).overflowY,
+        mainScrollTop: main.scrollTop,
+        beforeMainScroll,
+      };
+    });
+    if (!metrics) throw new Error("sidebar metrics were not available");
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+    expect(metrics.overflowY).not.toBe("hidden");
+    expect(metrics.scrollTop).toBeGreaterThan(0);
+    expect(metrics.mainScrollTop).toBe(metrics.beforeMainScroll);
+  });
+
   test("future navigation routes stay hidden until implemented", async ({ page }) => {
     await page.goto("/");
     const appNav = page.locator('nav[aria-label="App navigation"]');
@@ -360,12 +386,59 @@ test.describe("Folder page", () => {
     await expect(items.first()).toBeVisible();
   });
 
+  test("folder view uses a quiet unboxed list surface", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.goto("/Syntax");
+
+    const metrics = await page.evaluate(() => {
+      const crumb = document.querySelector<HTMLElement>(".folder-crumb");
+      const surface = document.querySelector<HTMLElement>(".folder-surface");
+      const firstItem = document.querySelector<HTMLElement>(".folder-list a");
+      if (!crumb || !surface || !firstItem) return null;
+      const surfaceStyle = getComputedStyle(surface);
+      const crumbStyle = getComputedStyle(crumb);
+      const itemStyle = getComputedStyle(firstItem);
+      return {
+        crumbClass: crumb.className,
+        surfaceClass: surface.className,
+        surfaceDisplay: surfaceStyle.display,
+        surfaceShadow: surfaceStyle.boxShadow,
+        crumbShadow: crumbStyle.boxShadow,
+        itemFontSize: Number.parseFloat(itemStyle.fontSize),
+        itemRadius: Number.parseFloat(itemStyle.borderTopLeftRadius),
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    if (!metrics) throw new Error("folder surface metrics were not available");
+    expect(metrics.crumbClass).not.toContain("reading-surface");
+    expect(metrics.surfaceClass).not.toContain("reading-surface");
+    expect(metrics.surfaceDisplay).toBe("grid");
+    expect(metrics.surfaceShadow).toBe("none");
+    expect(metrics.crumbShadow).toBe("none");
+    expect(metrics.itemFontSize).toBeLessThanOrEqual(16);
+    expect(metrics.itemRadius).toBeGreaterThanOrEqual(10);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+  });
+
   test("folder sort links navigate with query params", async ({ page }) => {
     await page.goto("/Syntax?sort=modified&dir=desc");
     await expect(page.locator("h1")).toContainText("Syntax");
     // The current sort link should have aria-current="true".
     const currentSort = page.locator('nav.folder-sort a[aria-current="true"]');
     await expect(currentSort).toContainText("Modified ↓");
+  });
+
+  test("mobile folder view keeps the quiet list within the viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/Syntax");
+    await expect(page.locator(".folder-surface")).toBeVisible();
+
+    const metrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
   });
 });
 
@@ -587,6 +660,41 @@ test.describe("TODO dashboard", () => {
     // Toggles.
     await expect(page.locator("[data-todo-hide-nodate]")).toBeVisible();
     await expect(page.locator("[data-todo-hide-done]")).toBeVisible();
+  });
+
+  test("todo toolbar stays in normal flow and does not overlay task rows", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 620 });
+    await page.goto("/_todo");
+
+    const metrics = await page.evaluate(() => {
+      const toolbar = document.querySelector<HTMLElement>(".todo-toolbar");
+      const firstRow = document.querySelector<HTMLElement>(".todo-section .task-row");
+      const main = document.querySelector<HTMLElement>("main#main-content");
+      if (!toolbar || !firstRow || !main) return null;
+      const before = toolbar.getBoundingClientRect();
+      const beforeRow = firstRow.getBoundingClientRect();
+      main.scrollTop = Math.min(260, main.scrollHeight - main.clientHeight);
+      const after = toolbar.getBoundingClientRect();
+      const afterRow = firstRow.getBoundingClientRect();
+      return {
+        position: getComputedStyle(toolbar).position,
+        top: getComputedStyle(toolbar).top,
+        beforeTop: before.top,
+        afterTop: after.top,
+        beforeBottom: before.bottom,
+        beforeRowTop: beforeRow.top,
+        afterRowTop: afterRow.top,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    if (!metrics) throw new Error("todo toolbar metrics were not available");
+    expect(metrics.position).toBe("static");
+    expect(metrics.top).toBe("auto");
+    expect(metrics.beforeBottom).toBeLessThan(metrics.beforeRowTop);
+    expect(metrics.afterTop).toBeLessThan(metrics.beforeTop - 40);
+    expect(metrics.afterRowTop).toBeLessThan(metrics.beforeRowTop - 40);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
   });
 
   test("todo tag filter has demo tags from tasks", async ({ page }) => {

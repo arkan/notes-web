@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"html"
 	"net/url"
+	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -41,6 +44,8 @@ var (
 	calloutBlockquoteRe   = regexp.MustCompile(`(?s)<blockquote>\s*<p>\[!(\w+)\]([+-]?)\s*([^\n<]*)\n(.*?)</p>\s*</blockquote>`)
 	mermaidFenceRe        = regexp.MustCompile("(?s)```mermaid\n(.*?)\n```")
 	markdownHeadingLineRe = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
+	renderedImageRe       = regexp.MustCompile(`(?s)<img\b([^>]*)>`)
+	renderedAttrRe        = regexp.MustCompile(`\s([A-Za-z_:][-A-Za-z0-9_:.]*)="([^"]*)"`)
 )
 
 // WithResolver returns a copy of the Renderer with the given resolver set,
@@ -61,7 +66,7 @@ func (r *Renderer) Render(n Note) RenderedDoc {
 	var buf bytes.Buffer
 	_ = r.md.Convert([]byte(body), &buf)
 	fm := renderFrontmatter(n.Frontmatter)
-	htmlBody := normalizeRenderedHTML(fm + buf.String())
+	htmlBody := r.normalizeRenderedHTML(fm+buf.String(), n.RelPath)
 	return RenderedDoc{Title: r.vault.Title(n), HTML: htmlBody, Toc: tocFromMarkdown(n.Body), Frontmatter: n.Frontmatter, Tags: extractTags(n), SourceURL: validSourceURL(n.Frontmatter), ReadingListPrompt: readingListPrompt(n.Frontmatter, n.RelPath)}
 }
 
@@ -114,6 +119,11 @@ func readingListPrompt(fm map[string]any, relPath string) string {
 }
 
 func normalizeRenderedHTML(s string) string {
+	r := &Renderer{}
+	return r.normalizeRenderedHTML(s, "")
+}
+
+func (r *Renderer) normalizeRenderedHTML(s string, sourceRel string) string {
 	s = decorateCalloutsHTML(s)
 	s = strings.ReplaceAll(s, `<input checked="" disabled="" type="checkbox">`, `<input type="checkbox" checked disabled>`)
 	s = strings.ReplaceAll(s, `<input disabled="" type="checkbox">`, `<input type="checkbox" disabled>`)
@@ -121,9 +131,113 @@ func normalizeRenderedHTML(s string) string {
 	s = decorateTaskMetadata(s)
 	s = decorateCodeBlocks(s)
 	s = decorateMarkdownTables(s)
+	s = r.decorateMediaPlaceholders(s, sourceRel)
 	s = taskIDCommentRe.ReplaceAllString(s, `<button class="task-id" data-copy="$1" title="Copy task ID">tid:$1</button>`)
 	s = wrapTaskListItemContent(s)
 	return s
+}
+
+func (r *Renderer) decorateMediaPlaceholders(s string, sourceRel string) string {
+	if r == nil || r.vault == nil || !strings.Contains(s, "<img") {
+		return s
+	}
+	return renderedImageRe.ReplaceAllStringFunc(s, func(match string) string {
+		attrs := renderedImageAttrs(match)
+		src := attrs["src"]
+		if src == "" {
+			return match
+		}
+		media, ok := r.localMediaInfo(src, sourceRel)
+		if !ok || (media.Exists && media.Previewable) {
+			return match
+		}
+		label := "Image unavailable"
+		if media.Exists && !media.Previewable {
+			label = "Media not previewable"
+		} else if !media.Previewable {
+			label = "Media unavailable"
+		}
+		name := media.Name
+		if name == "" {
+			name = strings.TrimSpace(attrs["alt"])
+		}
+		if name == "" {
+			name = "Media attachment"
+		}
+		return renderMediaPlaceholder(media.Href, media.Icon(), name, label)
+	})
+}
+
+type localMediaInfo struct {
+	Rel         string
+	Href        string
+	Name        string
+	Exists      bool
+	Previewable bool
+}
+
+func (m localMediaInfo) Icon() string {
+	if m.Previewable {
+		return "IMG"
+	}
+	ext := strings.TrimPrefix(strings.ToUpper(path.Ext(m.Rel)), ".")
+	if ext == "" || len(ext) > 4 {
+		return "FILE"
+	}
+	return ext
+}
+
+func renderedImageAttrs(tag string) map[string]string {
+	attrs := map[string]string{}
+	for _, match := range renderedAttrRe.FindAllStringSubmatch(tag, -1) {
+		if len(match) == 3 {
+			attrs[strings.ToLower(match[1])] = html.UnescapeString(match[2])
+		}
+	}
+	return attrs
+}
+
+func (r *Renderer) localMediaInfo(src string, sourceRel string) (localMediaInfo, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(src))
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(src, "//") || parsed.Path == "" {
+		return localMediaInfo{}, false
+	}
+	decodedPath, err := url.PathUnescape(parsed.Path)
+	if err != nil {
+		decodedPath = parsed.Path
+	}
+	rel := ""
+	if strings.HasPrefix(decodedPath, "/") {
+		rel = path.Clean(strings.TrimPrefix(decodedPath, "/"))
+	} else {
+		base := path.Dir(filepath.ToSlash(sourceRel))
+		if base == "." {
+			base = ""
+		}
+		rel = path.Clean(path.Join(base, decodedPath))
+	}
+	if rel == "." || rel == "" || strings.HasPrefix(rel, "../") || rel == ".." {
+		return localMediaInfo{}, false
+	}
+	ext := strings.ToLower(path.Ext(rel))
+	previewable := isPreviewableImageExt(ext)
+	abs := filepath.Join(r.vault.Root, filepath.FromSlash(rel))
+	info, statErr := os.Stat(abs)
+	exists := statErr == nil && !info.IsDir()
+	return localMediaInfo{Rel: rel, Href: r.vault.URLForRel(rel), Name: path.Base(rel), Exists: exists, Previewable: previewable}, true
+}
+
+func isPreviewableImageExt(ext string) bool {
+	switch ext {
+	case ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func renderMediaPlaceholder(href, icon, name, label string) string {
+	return `<a class="media-placeholder" href="` + html.EscapeString(href) + `"><span class="media-placeholder-icon" aria-hidden="true">` + html.EscapeString(icon) + `</span><span class="media-placeholder-copy"><strong>` + html.EscapeString(name) + `</strong><small>` + html.EscapeString(label) + `</small></span></a>`
 }
 
 func decorateMarkdownTables(s string) string {

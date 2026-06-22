@@ -473,7 +473,7 @@ func TestModernWorkbenchPhase4BInboxUIContracts(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
 	for _, want := range []string{
-		`<section class="inbox-view reading-surface" data-inbox-context data-edit-csrf="`,
+		`<section class="inbox-view app-page" data-inbox-context data-edit-csrf="`,
 		`<h1>Inbox</h1>`,
 		`data-inbox-count`,
 		`data-inbox-entry data-inbox-path="Inbox/static-contract.md"`,
@@ -514,7 +514,8 @@ func TestModernWorkbenchPhase4BInboxUIContracts(t *testing.T) {
 	for _, want := range []string{
 		".home-quick-capture{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)",
 		".home-quick-capture textarea{width:100%;min-height:92px",
-		".inbox-view{display:grid;gap:16px;max-width:900px;margin:0 auto}",
+		".app-page{width:100%;max-width:1120px;margin:0 auto;display:grid;gap:18px",
+		".trash-view.app-page,.inbox-view.app-page{max-width:1120px}",
 		".inbox-card{display:grid;grid-template-columns:minmax(0,1fr) auto",
 		"@media(max-width:1360px){.home-quick-capture,.inbox-card{grid-template-columns:1fr}",
 		"@media(max-width:760px){.home-quick-capture,.inbox-card{grid-template-columns:1fr}",
@@ -625,6 +626,9 @@ func TestReadableTypographyKeepsTextComfortableAndWideBlocksUseful(t *testing.T)
 		".content{font-size:17px;line-height:1.72;overflow-wrap:anywhere}",
 		".content>:where(p,ul,ol,blockquote,details,dl){max-width:100%}",
 		".content>:where(pre,.markdown-table-wrap,.mermaid,img){max-width:100%}",
+		".note-page .content img,.edit-preview-panel .content img{max-width:100%;height:auto;border:0;border-radius:12px;background:transparent;box-shadow:none}",
+		".media-placeholder{display:grid;grid-template-columns:34px minmax(0,1fr)",
+		".media-placeholder-icon{display:grid;place-items:center;inline-size:34px;block-size:34px",
 		".content p{margin:0 0 1.05rem}",
 		".content h2{margin:2.2rem 0 1rem}",
 		".content pre{overflow:auto;max-width:100%;",
@@ -765,7 +769,7 @@ func TestPhase2EditCRUDHooksRenderInFolderAndMissingContexts(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{
-		`class="folder-view reading-surface" data-edit-context data-edit-kind="folder" data-edit-directory="Areas" data-edit-path="Areas" data-edit-csrf="`,
+		`class="folder-view folder-surface" data-edit-context data-edit-kind="folder" data-edit-directory="Areas" data-edit-path="Areas" data-edit-csrf="`,
 		`<div class="note-actions" data-note-actions>`,
 		`data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>`,
 		`<div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Folder actions" hidden>`,
@@ -855,7 +859,7 @@ func TestPhase3TrashUIHooksRender(t *testing.T) {
 	s.ServeHTTP(w, r)
 	body = w.Body.String()
 	for _, want := range []string{
-		`class="trash-view reading-surface" data-trash-context data-edit-csrf="`,
+		`class="trash-view app-page" data-trash-context data-edit-csrf="`,
 		`class="trash-card" data-trash-entry data-trash-snapshot="2026-06-21T120000-abcdef" data-trash-original-path="Areas/Old.md"`,
 		`<span class="trash-kind">note</span>`,
 		`<h2>Areas/Old.md</h2>`,

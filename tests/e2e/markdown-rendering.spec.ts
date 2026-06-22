@@ -99,6 +99,56 @@ test.describe("Markdown rendering", () => {
     await expect(img).toHaveAttribute("alt", "Tiny SVG");
   });
 
+  test("missing and non-previewable media use compact placeholders", async ({ page }) => {
+    await page.goto("/Syntax/All%20Syntaxes.md");
+    const missing = page.locator('.content .media-placeholder[href="/Assets/missing-preview.png"]');
+    const pdf = page.locator('.content .media-placeholder[href="/Assets/reference.pdf"]');
+    await expect(missing).toBeVisible();
+    await expect(missing).toContainText("missing-preview.png");
+    await expect(missing).toContainText("Image unavailable");
+    await expect(pdf).toBeVisible();
+    await expect(pdf).toContainText("reference.pdf");
+    await expect(pdf).toContainText("Media not previewable");
+    await expect(pdf.locator(".media-placeholder-icon")).toHaveText("PDF");
+    await expect(page.locator('.content img[src="/Assets/missing-preview.png"]')).toHaveCount(0);
+    await expect(page.locator('.content img[src="/Assets/reference.pdf"]')).toHaveCount(0);
+
+    const metrics = await missing.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      const icon = el.querySelector<HTMLElement>(".media-placeholder-icon");
+      const iconBox = icon?.getBoundingClientRect();
+      return {
+        width: box.width,
+        height: box.height,
+        shadow: style.boxShadow,
+        borderWidth: style.borderTopWidth,
+        iconWidth: iconBox?.width ?? 0,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(metrics.height).toBeLessThan(90);
+    expect(metrics.iconWidth).toBeLessThanOrEqual(36);
+    expect(metrics.shadow).toBe("none");
+    expect(metrics.borderWidth).toBe("1px");
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+  });
+
+  test("media placeholders stay flat on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/Syntax/All%20Syntaxes.md");
+    const missing = page.locator('.content .media-placeholder[href="/Assets/missing-preview.png"]');
+    await expect(missing).toBeVisible();
+    const metrics = await missing.evaluate((el) => ({
+      width: el.getBoundingClientRect().width,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(metrics.width).toBeLessThanOrEqual(metrics.clientWidth);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+  });
+
   test("external link is rendered", async ({ page }) => {
     const extLink = page.locator('a[href="https://example.com"]');
     await expect(extLink).toBeVisible();

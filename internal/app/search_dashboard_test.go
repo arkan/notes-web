@@ -273,17 +273,17 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 	for _, want := range []string{
 		`<details class="tree-folder active-branch" data-tree-path="Areas" open>`,
 		`<details class="tree-folder active-branch" data-tree-path="Areas/Daily Briefings" open>`,
-		`<nav class="crumb reading-surface" aria-label="Breadcrumb">`,
+		`<nav class="crumb folder-crumb" aria-label="Breadcrumb">`,
 		`<a href="/">Home</a>`,
 		`<a href="/Areas">Areas</a>`,
 		`<a href="/Areas/Daily%20Briefings" aria-current="page">Daily Briefings</a>`,
-		`<article class="folder-view reading-surface">`,
+		`<article class="folder-view folder-surface">`,
 		`<header><div><p class="eyebrow">Folder</p><h1>Daily Briefings</h1></div><div class="note-actions" data-note-actions>`,
 		`data-note-actions-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions">⚙</button>`,
 		`<div class="note-actions-menu" data-note-actions-menu role="menu" aria-label="Folder actions" hidden>`,
 		`<button class="note-actions-item copy-link" role="menuitem" type="button" data-copy-path>Copy path</button>`,
 		`<ul class="list folder-list">`,
-		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md">📄 2026-05-22-briefing.md</a>`,
+		`<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md"><span class="folder-item-icon" aria-hidden="true">📄</span><span class="folder-item-name">2026-05-22-briefing.md</span></a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing folder layout markup %q in:\n%s", want, body)
@@ -366,6 +366,44 @@ func TestTODOShowsCopyableTaskIDs(t *testing.T) {
 		if !strings.Contains(doc.HTML, want) {
 			t.Fatalf("missing %q in TODO HTML:\n%s", want, doc.HTML)
 		}
+	}
+}
+
+func TestRendererMediaPlaceholders(t *testing.T) {
+	v := makeVault(t)
+	if err := os.MkdirAll(filepath.Join(v.Root, "Assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, "Assets", "tiny.svg"), []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, "Assets", "reference.pdf"), []byte("fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := NewRenderer(v).Render(Note{RelPath: "Syntax/Images.md", Body: strings.Join([]string{
+		"![Tiny SVG](/Assets/tiny.svg)",
+		"![Missing attachment](/Assets/missing-preview.png)",
+		"![Reference PDF](/Assets/reference.pdf)",
+		"![Relative missing](../Assets/relative-missing.png)",
+		"![External](https://example.com/image.png)",
+	}, "\n\n")})
+
+	for _, want := range []string{
+		`<img src="/Assets/tiny.svg" alt="Tiny SVG">`,
+		`<img src="https://example.com/image.png" alt="External">`,
+		`class="media-placeholder" href="/Assets/missing-preview.png"`,
+		`<strong>missing-preview.png</strong><small>Image unavailable</small>`,
+		`class="media-placeholder" href="/Assets/reference.pdf"`,
+		`<span class="media-placeholder-icon" aria-hidden="true">PDF</span>`,
+		`<strong>reference.pdf</strong><small>Media not previewable</small>`,
+		`class="media-placeholder" href="/Assets/relative-missing.png"`,
+	} {
+		if !strings.Contains(doc.HTML, want) {
+			t.Fatalf("missing media rendering %q in:\n%s", want, doc.HTML)
+		}
+	}
+	if strings.Contains(doc.HTML, `<img src="/Assets/missing-preview.png"`) || strings.Contains(doc.HTML, `<img src="/Assets/reference.pdf"`) {
+		t.Fatalf("missing/non-previewable media should not remain img tags:\n%s", doc.HTML)
 	}
 }
 
