@@ -354,10 +354,23 @@ func TestFolderPageCapsAt100Entries(t *testing.T) {
 	if !strings.Contains(body, "Showing first 100 of 250") {
 		t.Fatalf("expected cap message for 250 entries, got:\n%s", body)
 	}
-	// Should render roughly 100 list items.
-	itemCount := strings.Count(body, `<li><a`)
+	// Should render roughly 100 main folder-list items.
+	listStart := strings.Index(body, `<ul class="list folder-list">`)
+	if listStart < 0 {
+		t.Fatalf("missing folder list in:\n%s", body)
+	}
+	listEnd := strings.Index(body[listStart:], `</ul>`)
+	if listEnd < 0 {
+		t.Fatalf("missing folder list end in:\n%s", body)
+	}
+	folderList := body[listStart : listStart+listEnd]
+	itemCount := strings.Count(folderList, `<li><a`)
 	if itemCount < 90 || itemCount > 110 {
 		t.Fatalf("expected about 100 <li><a items, got %d", itemCount)
+	}
+	sidebarItemCount := strings.Count(sidebarVaultHTML(t, body), `<li><a`)
+	if sidebarItemCount < 90 || sidebarItemCount > 110 {
+		t.Fatalf("expected capped sidebar active-folder items, got %d", sidebarItemCount)
 	}
 	// Sort links should still be present.
 	if !strings.Contains(body, `sort=name&amp;dir=asc`) {

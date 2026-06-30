@@ -23,6 +23,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const folderListLimit = 100
+
 type (
 	Vault struct {
 		Root          string
@@ -316,17 +318,60 @@ func (v *Vault) sidebarTree(activeRel string, cfg Config) []TreeNode {
 			n.IsActive = rel == activeRel
 			n.ContainsActive = n.IsActive || (e.IsDir() && strings.HasPrefix(activeRel, rel+"/"))
 		}
-		if e.IsDir() && n.ContainsActive {
-			n.Children = v.activeBranchChildren(rel, activeRel, cfg)
+		if e.IsDir() {
+			n.Children = v.sidebarDirectoryChildren(rel, activeRel, cfg)
 		}
 		out = append(out, n)
 	}
 	return out
 }
 
+func (v *Vault) sidebarDirectoryChildren(parentRel, activeRel string, cfg Config) []TreeNode {
+	parentPath := filepath.Join(v.Root, filepath.FromSlash(parentRel))
+	ents, _ := os.ReadDir(parentPath)
+	sort.Slice(ents, func(i, j int) bool {
+		if ents[i].IsDir() != ents[j].IsDir() {
+			return ents[i].IsDir()
+		}
+		return strings.ToLower(ents[i].Name()) < strings.ToLower(ents[j].Name())
+	})
+
+	var out []TreeNode
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		p := filepath.Join(parentPath, e.Name())
+		rel := v.Rel(p)
+		if v.isExcludedFromEnumeration(rel, cfg) {
+			continue
+		}
+		if !e.IsDir() && !v.IsMarkdown(p) {
+			continue
+		}
+
+		n := TreeNode{Name: e.Name(), Rel: rel, URL: v.URLForRel(rel), IsDir: e.IsDir()}
+		if activeRel != "" {
+			n.IsActive = rel == activeRel
+			n.ContainsActive = n.IsActive || (e.IsDir() && strings.HasPrefix(activeRel, rel+"/"))
+		}
+		if e.IsDir() && n.ContainsActive {
+			n.Children = v.activeBranchChildren(rel, activeRel, cfg)
+		}
+		out = append(out, n)
+		if len(out) >= folderListLimit {
+			break
+		}
+	}
+	return out
+}
+
 func (v *Vault) activeBranchChildren(parentRel, activeRel string, cfg Config) []TreeNode {
-	if activeRel == "" || parentRel == activeRel || !strings.HasPrefix(activeRel, parentRel+"/") {
+	if activeRel == "" || (parentRel != activeRel && !strings.HasPrefix(activeRel, parentRel+"/")) {
 		return nil
+	}
+	if parentRel == activeRel {
+		return v.sidebarDirectoryChildren(parentRel, activeRel, cfg)
 	}
 
 	rest := strings.TrimPrefix(activeRel, parentRel+"/")
@@ -1071,8 +1116,8 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 	// Cap large folder listings: first 100 entries for fast initial page load.
 	// Browsing can use search/palette or narrower folders for deeper access.
 	totalItems := len(items)
-	if totalItems > 100 {
-		items = items[:100]
+	if totalItems > folderListLimit {
+		items = items[:folderListLimit]
 	}
 	relPath := s.vault.Rel(p)
 	cfgBadge := s.vault.LoadConfig()
@@ -1083,7 +1128,7 @@ func (s *Server) folder(w http.ResponseWriter, r *http.Request, p string) {
 	c["Items"] = items
 	c["SortLinks"] = folderSortLinks(s.vault.URLForRel(relPath), selectedSort)
 	c["TotalItems"] = totalItems
-	c["Capped"] = totalItems > 100
+	c["Capped"] = totalItems > folderListLimit
 	c["IsHidden"] = s.vault.isConfiguredHidden(relPath, cfgBadge.Hidden)
 	c["CanEditFolder"] = relPath != "" && cfgBadge.Editing.Enabled
 	c["CanRenameFolder"] = relPath != "" && cfgBadge.Editing.Enabled && readDirErr == nil && len(ents) == 0

@@ -369,11 +369,11 @@ function initNoteActionMenus() {
       }
       return;
     }
-    if (!menu) return;
     if (ev.key === 'Tab') {
-      closeNoteActionMenus();
+      if (document.querySelector('[data-note-actions-toggle][aria-expanded="true"]')) closeNoteActionMenus();
       return;
     }
+    if (!menu) return;
     if (ev.key === 'ArrowDown') { ev.preventDefault(); moveNoteActionFocus(menu, 1); }
     else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveNoteActionFocus(menu, -1); }
   });

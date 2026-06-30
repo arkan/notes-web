@@ -15,7 +15,7 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	s.ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary><span aria-hidden="true">📁</span> Areas</summary>`, `data-copy-path`} {
+	for _, want := range []string{`<details class="tree-folder" data-tree-path="Areas">`, `<summary><span aria-hidden="true">📁</span> <a class="tree-folder-link" href="/Areas">Areas</a></summary>`, `data-copy-path`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in home HTML", want)
 		}
@@ -37,6 +37,39 @@ func TestSidebarFoldersClosedAndCopyScriptAvailable(t *testing.T) {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("app.js should not use %q for page path copying", forbidden)
 		}
+	}
+}
+
+func TestSidebarTopLevelFoldersRenderExpandableChildren(t *testing.T) {
+	v := makeVault(t)
+	basePath := filepath.Join(v.Root, "Bases")
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(basePath, "Only.base"), []byte("not markdown\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(v, "", "")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s.ServeHTTP(w, r)
+	sidebar := sidebarVaultHTML(t, w.Body.String())
+
+	for _, want := range []string{
+		`<details class="tree-folder" data-tree-path="Areas">`,
+		`<a class="tree-folder-link" href="/Areas/Daily%20Briefings"><span aria-hidden="true">📁</span> Daily Briefings</a>`,
+		`<a href="/Areas/Target.md"><span aria-hidden="true">📄</span> Target.md</a>`,
+	} {
+		if !strings.Contains(sidebar, want) {
+			t.Fatalf("top-level sidebar folder should render expandable child %q in:\n%s", want, sidebar)
+		}
+	}
+	if strings.Contains(sidebar, `data-tree-path="Bases"`) {
+		t.Fatalf("folder without rendered children should not expose an empty disclosure arrow:\n%s", sidebar)
+	}
+	if !strings.Contains(sidebar, `<a class="tree-folder-link" href="/Bases"><span aria-hidden="true">📁</span> Bases</a>`) {
+		t.Fatalf("folder without rendered children should remain navigable as a folder link:\n%s", sidebar)
 	}
 }
 

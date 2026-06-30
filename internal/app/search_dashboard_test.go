@@ -295,6 +295,10 @@ func TestFolderViewUsesNoteLayoutAndClickableBreadcrumbs(t *testing.T) {
 	if strings.Contains(body, `<small>Areas/Daily Briefings</small>`) {
 		t.Fatalf("folder header should not repeat the breadcrumb path:\n%s", body)
 	}
+	sidebar := sidebarVaultHTML(t, body)
+	if !strings.Contains(sidebar, `<a href="/Areas/Daily%20Briefings/2026-05-22-briefing.md"><span aria-hidden="true">📄</span> 2026-05-22-briefing.md</a>`) {
+		t.Fatalf("active folder should show its immediate children in the sidebar:\n%s", sidebar)
+	}
 
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest("GET", "/_static/style.css", nil)

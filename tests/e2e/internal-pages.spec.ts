@@ -50,6 +50,27 @@ test.describe("Home dashboard", () => {
 });
 
 test.describe("Folder page", () => {
+  test("sidebar folder link opens folder page", async ({ page }) => {
+    await page.goto("/");
+    await page.locator('details.tree-folder[data-tree-path="Areas"] summary a').click();
+    await expect(page).toHaveURL(/\/Areas$/);
+    await expect(page.locator("h1")).toContainText("Areas");
+  });
+
+  test("top-level sidebar folder expands with rendered children", async ({ page }) => {
+    await page.goto("/");
+    const areas = page.locator('details.tree-folder[data-tree-path="Areas"]');
+    await areas.locator("summary").click({ position: { x: 8, y: 8 } });
+    await expect(areas.locator('a[href="/Areas/Daily%20Briefings"]')).toBeVisible();
+  });
+
+  test("active sidebar folder shows its children", async ({ page }) => {
+    await page.goto("/Areas/Daily%20Briefings");
+    const activeFolder = page.locator('details.tree-folder[data-tree-path="Areas/Daily Briefings"]');
+    await expect(activeFolder).toHaveAttribute("open", "");
+    await expect(activeFolder.locator('a[href="/Areas/Daily%20Briefings/2026-06-18-briefing.md"]')).toBeVisible();
+  });
+
   test("folder view shows contents and sort links", async ({ page }) => {
     await page.goto("/Syntax");
     // Folder page.
